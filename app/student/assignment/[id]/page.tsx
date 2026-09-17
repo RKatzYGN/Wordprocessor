@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 
-// Load Editor strictly on client
+// Load Editor strictly on client side
 const Editor = dynamic(() => import('@/components/Editor'), {
   ssr: false,
   loading: () => (
@@ -85,10 +85,37 @@ function AssignmentPageContent() {
 
   return (
     <div className="min-h-screen bg-slate-50/50 print:bg-white print:min-h-0 py-8 px-4 sm:px-6 lg:px-8">
+      {/* Strict CSS Override to guarantee headers and toolbars hide when printing */}
+      <style jsx global>{`
+        @media print {
+          header,
+          .no-print,
+          .print\\:hidden {
+            display: none !important;
+          }
+          body {
+            background: white !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          main {
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          input {
+            border: none !important;
+            padding: 0 !important;
+            font-size: 28pt !important;
+            font-weight: bold !important;
+          }
+        }
+      `}</style>
+
       <div className="max-w-5xl mx-auto space-y-6 print:space-y-4 print:p-0 print:m-0">
-        
-        {/* Top Header - Completely Hidden When Printing */}
-        <header className="print:hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/80 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+        {/* Top Action Bar */}
+        <header className="no-print print:hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/80 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
           <button
             onClick={() => router.push('/student/dashboard')}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold rounded-xl transition-all active:scale-[0.98]"
@@ -113,19 +140,16 @@ function AssignmentPageContent() {
           </div>
         </header>
 
-        {/* Document Body Area */}
+        {/* Main Document Body */}
         <main className="bg-white print:bg-white rounded-2xl print:rounded-none border border-slate-200/80 print:border-none p-6 sm:p-10 print:p-0 shadow-xs print:shadow-none space-y-6 print:space-y-4">
-          
-          {/* Title Input */}
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 border-b border-slate-200/80 pb-3 focus:outline-none focus:border-blue-500 print:border-none print:pb-0 print:text-4xl"
+            className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 border-b border-slate-200/80 pb-3 focus:outline-none focus:border-blue-500 print:border-none print:pb-0"
             placeholder="Document Title"
           />
 
-          {/* Tiptap Editor Surface */}
           <Editor content={content} onChange={(html) => setContent(html)} />
         </main>
       </div>
