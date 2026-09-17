@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 
-// Load Editor strictly on client side
+// Load Editor strictly on client
 const Editor = dynamic(() => import('@/components/Editor'), {
   ssr: false,
   loading: () => (
@@ -15,13 +15,12 @@ const Editor = dynamic(() => import('@/components/Editor'), {
   ),
 });
 
-export default function AssignmentPage() {
-  const [mounted, setMounted] = useState(false);
+function AssignmentPageContent() {
+  const params = useParams();
   const router = useRouter();
-  const pathname = usePathname();
 
-  // Safely extract the ID from the URL path (/student/assignment/YOUR-ID)
-  const assignmentId = pathname ? pathname.split('/').pop() || '' : '';
+  // Safely read dynamic assignment ID from client params
+  const assignmentId = typeof params?.id === 'string' ? params.id : Array.isArray(params?.id) ? params.id[0] : '';
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -29,11 +28,7 @@ export default function AssignmentPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted || !assignmentId) return;
+    if (!assignmentId) return;
 
     async function fetchAssignment() {
       const { data, error } = await supabase
@@ -52,7 +47,7 @@ export default function AssignmentPage() {
     }
 
     fetchAssignment();
-  }, [assignmentId, mounted]);
+  }, [assignmentId]);
 
   const handleSave = async () => {
     if (!assignmentId) return;
@@ -76,12 +71,8 @@ export default function AssignmentPage() {
     setSaving(false);
   };
 
-  if (!mounted || loading) {
-    return (
-      <div className="max-w-5xl mx-auto p-8 text-center text-slate-500 font-medium">
-        Loading document...
-      </div>
-    );
+  if (loading) {
+    return <div className="p-8 text-center text-slate-500 font-medium">Loading document data...</div>;
   }
 
   return (
@@ -112,7 +103,7 @@ export default function AssignmentPage() {
         </div>
       </div>
 
-      {/* Document Title */}
+      {/* Document Title Input */}
       <input
         type="text"
         value={title}
@@ -121,8 +112,17 @@ export default function AssignmentPage() {
         placeholder="Document Title"
       />
 
-      {/* Rich Text Editor */}
+      {/* Tiptap Editor */}
       <Editor content={content} onChange={(html) => setContent(html)} />
     </div>
+  );
+}
+
+// Default export wrapped in Suspense boundary to prevent Next.js #438 params hydration crash
+export default function AssignmentPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-500 font-medium">Loading page...</div>}>
+      <AssignmentPageContent />
+    </Suspense>
   );
 }
