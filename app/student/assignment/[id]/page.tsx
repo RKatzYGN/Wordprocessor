@@ -25,13 +25,15 @@ export default function AssignmentPage() {
     if (!assignmentId) return;
 
     async function fetchAssignment() {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('assignments')
         .select('*')
         .eq('id', assignmentId)
         .single();
 
-      if (data) {
+      if (error) {
+        console.error('Fetch error:', error);
+      } else if (data) {
         setTitle(data.title || 'Untitled Document');
         setContent(data.content || '');
       }
@@ -44,12 +46,26 @@ export default function AssignmentPage() {
   const handleSave = async () => {
     if (!assignmentId) return;
     setSaving(true);
-    
-    await supabase
+
+    const { data, error } = await supabase
       .from('assignments')
-      .update({ title, content, updated_at: new Date().toISOString() })
-      .eq('id', assignmentId);
-      
+      .update({ 
+        title: title, 
+        content: content, 
+        updated_at: new Date().toISOString() 
+      })
+      .eq('id', assignmentId)
+      .select();
+
+    if (error) {
+      alert(`Save error: ${error.message}`);
+      console.error('Save error:', error);
+    } else if (!data || data.length === 0) {
+      alert('Save warning: No document matched this ID in Supabase.');
+    } else {
+      alert('Saved successfully!');
+    }
+
     setSaving(false);
   };
 
@@ -63,7 +79,6 @@ export default function AssignmentPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-4 print:p-0 print:m-0">
-      {/* Top Action Bar - Hidden when printing */}
       <div className="print:hidden flex justify-between items-center">
         <button
           onClick={() => router.push('/student/dashboard')}
@@ -89,7 +104,6 @@ export default function AssignmentPage() {
         </div>
       </div>
 
-      {/* Document Title */}
       <input
         type="text"
         value={title}
@@ -98,7 +112,6 @@ export default function AssignmentPage() {
         placeholder="Document Title"
       />
 
-      {/* Rich Text Editor */}
       <Editor content={content} onChange={(html) => setContent(html)} />
     </div>
   );
