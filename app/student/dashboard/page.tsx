@@ -31,9 +31,13 @@ export default function StudentDashboard() {
 
   const fetchData = async () => {
     setLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+
     const [foldersRes, assignmentsRes] = await Promise.all([
       supabase.from('folders').select('*').order('name', { ascending: true }),
-      supabase.from('assignments').select('*').order('updated_at', { ascending: false }),
+      user 
+        ? supabase.from('assignments').select('*').eq('student_id', user.id).order('updated_at', { ascending: false })
+        : supabase.from('assignments').select('*').order('updated_at', { ascending: false }),
     ]);
 
     if (foldersRes.data) setFolders(foldersRes.data);
