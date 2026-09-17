@@ -3,8 +3,6 @@
 import { useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import TextStyle from '@tiptap/extension-text-style';
-import FontSize from '@tiptap/extension-font-size';
 
 interface EditorProps {
   content?: string;
@@ -17,8 +15,6 @@ export default function Editor({ content = '', onChange }: EditorProps) {
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
       }),
-      TextStyle,
-      FontSize,
     ],
     content: typeof content === 'string' ? content : '',
     autofocus: 'end',
@@ -59,7 +55,6 @@ export default function Editor({ content = '', onChange }: EditorProps) {
         className="print:hidden border-b border-slate-200 p-2.5 bg-slate-50/80 backdrop-blur flex flex-wrap gap-2 items-center sticky top-0 z-10"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Paragraph / Heading Format Selector */}
         <select
           onChange={(e) => {
             const val = e.target.value;
@@ -79,38 +74,14 @@ export default function Editor({ content = '', onChange }: EditorProps) {
               : 'p'
           }
         >
-          <option value="p">Paragraph</option>
-          <option value="h1">Heading 1</option>
-          <option value="h2">Heading 2</option>
-          <option value="h3">Heading 3</option>
-        </select>
-
-        {/* Exact Font Size Selector */}
-        <select
-          onChange={(e) => {
-            const size = e.target.value;
-            if (size === 'default') {
-              editor.chain().focus().unsetFontSize().run();
-            } else {
-              editor.chain().focus().setFontSize(size).run();
-            }
-          }}
-          className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-medium bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          defaultValue="default"
-        >
-          <option value="default">Size: Default</option>
-          <option value="12px">12 pt (Small)</option>
-          <option value="14px">14 pt</option>
-          <option value="16px">16 pt (Standard)</option>
-          <option value="18px">18 pt</option>
-          <option value="24px">24 pt (Large)</option>
-          <option value="32px">32 pt</option>
-          <option value="48px">48 pt (Huge)</option>
+          <option value="p">Normal Text</option>
+          <option value="h1">Heading 1 (Large)</option>
+          <option value="h2">Heading 2 (Medium)</option>
+          <option value="h3">Heading 3 (Small)</option>
         </select>
 
         <span className="text-slate-300 font-light">|</span>
 
-        {/* Text Styling */}
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleBold().run()}
@@ -136,7 +107,6 @@ export default function Editor({ content = '', onChange }: EditorProps) {
 
         <span className="text-slate-300 font-light">|</span>
 
-        {/* Lists */}
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleBulletList().run()}
@@ -161,7 +131,6 @@ export default function Editor({ content = '', onChange }: EditorProps) {
         </button>
       </div>
 
-      {/* Canvas */}
       <EditorContent editor={editor} />
     </div>
   );
