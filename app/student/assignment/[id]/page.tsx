@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 
-// Dynamically import Editor with SSR completely disabled
+// Dynamically import Editor with SSR disabled
 const Editor = dynamic(() => import('@/components/Editor'), {
   ssr: false,
   loading: () => (
@@ -16,11 +16,21 @@ const Editor = dynamic(() => import('@/components/Editor'), {
 });
 
 export default function AssignmentPage() {
+  const [mounted, setMounted] = useState(false);
   const params = useParams();
   const router = useRouter();
 
-  // Safely extract string ID from useParams hook
-  const assignmentId = typeof params?.id === 'string' ? params.id : Array.isArray(params?.id) ? params.id[0] : '';
+  // Prevent server-side or early hydration execution
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const assignmentId =
+    typeof params?.id === 'string'
+      ? params.id
+      : Array.isArray(params?.id)
+      ? params.id[0]
+      : '';
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -28,7 +38,7 @@ export default function AssignmentPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!assignmentId) return;
+    if (!mounted || !assignmentId) return;
 
     async function fetchAssignment() {
       const { data, error } = await supabase
@@ -47,21 +57,20 @@ export default function AssignmentPage() {
     }
 
     fetchAssignment();
-  }, [assignmentId]);
+  }, [assignmentId, mounted]);
 
   const handleSave = async () => {
     if (!assignmentId) return;
     setSaving(true);
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('assignments')
       .update({
         title,
         content,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', assignmentId)
-      .select();
+      .eq('id', assignmentId);
 
     if (error) {
       alert(`Save error: ${error.message}`);
@@ -72,12 +81,12 @@ export default function AssignmentPage() {
     setSaving(false);
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
-
-  if (loading) {
-    return <div className="p-8 text-center text-slate-500">Loading document...</div>;
+  if (!mounted || loading) {
+    return (
+      <div className="max-w-5xl mx-auto p-8 text-center text-slate-500 font-medium">
+        Loading document...
+      </div>
+    );
   }
 
   return (
@@ -93,7 +102,7 @@ export default function AssignmentPage() {
 
         <div className="flex gap-2">
           <button
-            onClick={handlePrint}
+            onClick={() => window.print()}
             className="px-4 py-2 bg-slate-800 text-white text-sm font-medium rounded-lg hover:bg-slate-900 transition"
           >
             🖨️ Print
@@ -108,7 +117,7 @@ export default function AssignmentPage() {
         </div>
       </div>
 
-      {/* Title Input */}
+      {/* Document Title */}
       <input
         type="text"
         value={title}
@@ -117,7 +126,7 @@ export default function AssignmentPage() {
         placeholder="Document Title"
       />
 
-      {/* Dynamic Client Editor */}
+      {/* Rich Text Editor */}
       <Editor content={content} onChange={(html) => setContent(html)} />
     </div>
   );
