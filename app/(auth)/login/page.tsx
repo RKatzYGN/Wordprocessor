@@ -42,6 +42,25 @@ export default function LoginPage() {
 
     setLoading(false);
   };
+  // Sign Up Handler (Enforces allowed_users SQL trigger)
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+
+    if (error) {
+      // Catch trigger error: "Your email address is not pre-approved..."
+      alert(error.message);
+    } else if (data.user) {
+      alert('Account created successfully! Redirecting to dashboard...');
+      router.push('/student/dashboard');
+    }
+    setLoading(false);
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
