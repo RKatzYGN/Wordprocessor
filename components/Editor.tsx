@@ -1,6 +1,5 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 
@@ -10,16 +9,9 @@ interface EditorProps {
 }
 
 export default function Editor({ content = '', onChange }: EditorProps) {
-  const [mounted, setMounted] = useState(false);
-
-  // Prevent SSR mismatch crash
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   const editor = useEditor({
     extensions: [StarterKit],
-    content: typeof content === 'string' ? content : '<p></p>',
+    content: typeof content === 'string' ? content : '',
     onUpdate: ({ editor }) => {
       if (onChange) {
         onChange(editor.getHTML());
@@ -27,16 +19,8 @@ export default function Editor({ content = '', onChange }: EditorProps) {
     },
   });
 
-  if (!mounted) {
-    return (
-      <div className="border rounded-md p-4 min-h-[300px] bg-gray-50 flex items-center justify-center text-gray-400">
-        Loading editor...
-      </div>
-    );
-  }
-
   if (!editor) {
-    return null;
+    return <div className="p-4 border rounded bg-gray-50 text-gray-400">Initializing editor...</div>;
   }
 
   return (
