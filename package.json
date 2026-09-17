@@ -10,8 +10,6 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
-    "@tiptap/extension-font-size": "^2.2.4",
-    "@tiptap/extension-text-style": "^2.2.4",
     "@tiptap/react": "^2.2.4",
     "@tiptap/starter-kit": "^2.2.4",
     "next": "14.1.0",
