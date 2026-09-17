@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 
-// Dynamically import Editor with SSR disabled
+// Load Editor strictly on client side
 const Editor = dynamic(() => import('@/components/Editor'), {
   ssr: false,
   loading: () => (
@@ -17,25 +17,20 @@ const Editor = dynamic(() => import('@/components/Editor'), {
 
 export default function AssignmentPage() {
   const [mounted, setMounted] = useState(false);
-  const params = useParams();
   const router = useRouter();
+  const pathname = usePathname();
 
-  // Prevent server-side or early hydration execution
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const assignmentId =
-    typeof params?.id === 'string'
-      ? params.id
-      : Array.isArray(params?.id)
-      ? params.id[0]
-      : '';
+  // Safely extract the ID from the URL path (/student/assignment/YOUR-ID)
+  const assignmentId = pathname ? pathname.split('/').pop() || '' : '';
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!mounted || !assignmentId) return;
