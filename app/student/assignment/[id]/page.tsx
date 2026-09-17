@@ -5,7 +5,6 @@ import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 
-// Load Editor strictly on client side
 const Editor = dynamic(() => import('@/components/Editor'), {
   ssr: false,
   loading: () => (
@@ -28,8 +27,13 @@ function AssignmentPageContent() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [status, setStatus] = useState<'draft' | 'submitted' | 'graded'>('draft');
+  const [grade, setGrade] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!assignmentId) return;
@@ -46,6 +50,9 @@ function AssignmentPageContent() {
       } else if (data) {
         setTitle(data.title || 'Untitled Document');
         setContent(data.content || '');
+        setStatus(data.status || 'draft');
+        setGrade(data.grade || null);
+        setFeedback(data.feedback || null);
       }
       setLoading(false);
     }
@@ -53,7 +60,7 @@ function AssignmentPageContent() {
     fetchAssignment();
   }, [assignmentId]);
 
-  // Database Save
+  // Save Document
   const handleSave = async () => {
     if (!assignmentId) return;
     setSaving(true);
@@ -70,45 +77,63 @@ function AssignmentPageContent() {
     if (error) {
       alert(`Save error: ${error.message}`);
     } else {
-      alert('Saved to cloud database successfully!');
+      alert('Saved successfully!');
     }
 
     setSaving(false);
   };
 
-  // 💾 Save / Export directly to USB Drive
+  // Submit Assignment
+  const handleSubmitAssignment = async () => {
+    if (!assignmentId) return;
+
+    const confirmSubmit = window.confirm(
+      'Are you sure you want to submit this assignment to your teacher?'
+    );
+    if (!confirmSubmit) return;
+
+    setSubmitting(true);
+
+    const { error } = await supabase
+      .from('assignments')
+      .update({
+        title,
+        content,
+        status: 'submitted',
+        submitted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', assignmentId);
+
+    if (error) {
+      alert(`Submission error: ${error.message}`);
+    } else {
+      setStatus('submitted');
+      alert('Assignment submitted to teacher successfully!');
+    }
+
+    setSubmitting(false);
+  };
+
+  // Open & Save USB Handlers
   const handleSaveToUSB = async () => {
     const filename = `${title || 'Untitled Document'}.html`;
-
-    // 1. Modern Web File System Access API (Chrome, Edge, Opera)
     if ('showSaveFilePicker' in window) {
       try {
         // @ts-ignore
         const handle = await window.showSaveFilePicker({
           suggestedName: filename,
-          types: [
-            {
-              description: 'HTML Web Document',
-              accept: { 'text/html': ['.html', '.htm'] },
-            },
-            {
-              description: 'Text Document',
-              accept: { 'text/plain': ['.txt'] },
-            },
-          ],
+          types: [{ description: 'HTML Document', accept: { 'text/html': ['.html'] } }],
         });
         const writable = await handle.createWritable();
         await writable.write(content);
         await writable.close();
-        alert('Document saved successfully to USB drive!');
+        alert('Saved to USB drive!');
         return;
       } catch (err: any) {
-        if (err.name === 'AbortError') return; // User cancelled file picker
-        console.error('File Picker Error:', err);
+        if (err.name === 'AbortError') return;
       }
     }
-
-    // 2. Fallback for Safari / Firefox: Trigger browser file download
     const blob = new Blob([content], { type: 'text/html;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -117,54 +142,17 @@ function AssignmentPageContent() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   };
 
-  // 📂 Open file directly from USB Drive
   const handleOpenFromUSB = async (e?: React.ChangeEvent<HTMLInputElement>) => {
-    // 1. Native Modern File Picker (Chrome, Edge)
-    if (!e && 'showOpenFilePicker' in window) {
-      try {
-        // @ts-ignore
-        const [handle] = await window.showOpenFilePicker({
-          types: [
-            {
-              description: 'Documents',
-              accept: {
-                'text/html': ['.html', '.htm'],
-                'text/plain': ['.txt'],
-              },
-            },
-          ],
-          multiple: false,
-        });
-        const file = await handle.getFile();
-        const text = await file.text();
-
-        // Extract filename as document title
-        const fileTitle = file.name.replace(/\.[^/.]+$/, '');
-        setTitle(fileTitle);
-        setContent(text);
-        alert(`Loaded "${file.name}" into editor!`);
-        return;
-      } catch (err: any) {
-        if (err.name === 'AbortError') return;
-        console.error('File Open Error:', err);
-      }
-    }
-
-    // 2. Standard Input Fallback (Firefox / Safari / Fallback Input)
     const file = e?.target?.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result as string;
       if (text) {
-        const fileTitle = file.name.replace(/\.[^/.]+$/, '');
-        setTitle(fileTitle);
+        setTitle(file.name.replace(/\.[^/.]+$/, ''));
         setContent(text);
-        alert(`Loaded "${file.name}" into editor!`);
       }
     };
     reader.readAsText(file);
@@ -180,7 +168,6 @@ function AssignmentPageContent() {
 
   return (
     <div className="min-h-screen bg-slate-50/50 print:bg-white print:min-h-0 py-8 px-4 sm:px-6 lg:px-8">
-      {/* Print Stylesheet Rule */}
       <style jsx global>{`
         @media print {
           header,
@@ -199,75 +186,91 @@ function AssignmentPageContent() {
             padding: 0 !important;
             margin: 0 !important;
           }
-          input {
-            border: none !important;
-            padding: 0 !important;
-            font-size: 28pt !important;
-            font-weight: bold !important;
-          }
         }
       `}</style>
 
       <div className="max-w-5xl mx-auto space-y-6 print:space-y-4 print:p-0 print:m-0">
         
-        {/* Top Header Action Bar */}
+        {/* Action Header */}
         <header className="no-print print:hidden flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/80 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
           <button
             onClick={() => router.push('/student/dashboard')}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold rounded-xl transition-all active:scale-[0.98]"
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold rounded-xl transition-all"
           >
             ← Dashboard
           </button>
 
-          {/* USB & Cloud Actions */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Open File Button */}
-            <label className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 text-xs font-semibold rounded-xl transition-all cursor-pointer active:scale-[0.98]">
-              📂 Open USB File
-              <input
-                type="file"
-                accept=".html,.htm,.txt"
-                onChange={handleOpenFromUSB}
-                className="hidden"
-              />
+            <label className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 text-xs font-semibold rounded-xl cursor-pointer">
+              📂 USB Open
+              <input type="file" accept=".html,.htm,.txt" onChange={handleOpenFromUSB} className="hidden" />
             </label>
 
-            {/* Save to USB Button */}
             <button
               onClick={handleSaveToUSB}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl transition-all shadow-xs active:scale-[0.98]"
+              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl"
             >
-              💾 Save to USB
+              💾 USB Save
             </button>
 
-            <span className="text-slate-300 font-light mx-1">|</span>
-
-            {/* Print Button */}
             <button
               onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition-all shadow-xs active:scale-[0.98]"
+              className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl"
             >
               🖨️ Print
             </button>
 
-            {/* Save to Cloud Button */}
             <button
               onClick={handleSave}
               disabled={saving}
-              className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-all shadow-xs active:scale-[0.98] disabled:opacity-50"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl disabled:opacity-50"
             >
-              {saving ? 'Saving...' : '☁️ Save to Cloud'}
+              {saving ? 'Saving...' : '☁️ Save Draft'}
+            </button>
+
+            {/* Submit Assignment Button */}
+            <button
+              onClick={handleSubmitAssignment}
+              disabled={submitting || status === 'submitted' || status === 'graded'}
+              className={`px-4 py-2 text-xs font-semibold rounded-xl transition ${
+                status === 'submitted' || status === 'graded'
+                  ? 'bg-purple-100 text-purple-700 cursor-default'
+                  : 'bg-purple-600 hover:bg-purple-700 text-white shadow-xs'
+              }`}
+            >
+              {status === 'submitted'
+                ? '✓ Submitted'
+                : status === 'graded'
+                ? '✓ Graded'
+                : submitting
+                ? 'Submitting...'
+                : '🚀 Submit Assignment'}
             </button>
           </div>
         </header>
 
-        {/* Document Body Area */}
-        <main className="bg-white print:bg-white rounded-2xl print:rounded-none border border-slate-200/80 print:border-none p-6 sm:p-10 print:p-0 shadow-xs print:shadow-none space-y-6 print:space-y-4">
+        {/* Feedback / Grade Banner */}
+        {(grade || feedback) && (
+          <div className="bg-purple-50 border border-purple-200 rounded-2xl p-5 space-y-1">
+            <div className="flex justify-between items-center">
+              <h3 className="text-sm font-bold text-purple-900">Teacher Review & Feedback</h3>
+              {grade && (
+                <span className="px-3 py-1 bg-purple-600 text-white font-bold text-xs rounded-lg">
+                  Grade: {grade}
+                </span>
+              )}
+            </div>
+            {feedback && <p className="text-sm text-purple-800 mt-2">{feedback}</p>}
+          </div>
+        )}
+
+        {/* Document Editor */}
+        <main className="bg-white print:bg-white rounded-2xl border border-slate-200/80 print:border-none p-6 sm:p-10 shadow-xs space-y-6">
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 border-b border-slate-200/80 pb-3 focus:outline-none focus:border-blue-500 print:border-none print:pb-0"
+            className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 border-b border-slate-200/80 pb-3 focus:outline-none"
             placeholder="Document Title"
           />
 
