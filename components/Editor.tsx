@@ -9,7 +9,6 @@ interface EditorProps {
   onChange?: (html: string) => void;
 }
 
-// 1. Outer Guard: Prevents Tiptap from running during Server-Side Rendering (SSR)
 export default function Editor({ content = '', onChange }: EditorProps) {
   const [mounted, setMounted] = useState(false);
 
@@ -20,7 +19,7 @@ export default function Editor({ content = '', onChange }: EditorProps) {
   if (!mounted) {
     return (
       <div className="border border-slate-200 rounded-xl p-8 min-h-[500px] bg-slate-50 flex items-center justify-center text-slate-400 font-medium">
-        Loading editor canvas...
+        Loading editor...
       </div>
     );
   }
@@ -28,7 +27,6 @@ export default function Editor({ content = '', onChange }: EditorProps) {
   return <EditorInstance content={content} onChange={onChange} />;
 }
 
-// 2. Inner Instance: Mounts safely in browser client memory only
 function EditorInstance({ content = '', onChange }: EditorProps) {
   const editor = useEditor({
     extensions: [
@@ -46,12 +44,11 @@ function EditorInstance({ content = '', onChange }: EditorProps) {
     editorProps: {
       attributes: {
         class:
-          'prose max-w-none focus:outline-none min-h-[480px] p-6 text-slate-800 cursor-text leading-relaxed text-base',
+          'prose max-w-none focus:outline-none min-h-[500px] p-2 sm:p-4 text-slate-800 cursor-text leading-relaxed text-base print:p-0 print:min-h-0',
       },
     },
   });
 
-  // Guarantees cursor focuses immediately on mount
   useEffect(() => {
     if (editor && !editor.isDestroyed) {
       editor.commands.focus('end');
@@ -61,22 +58,21 @@ function EditorInstance({ content = '', onChange }: EditorProps) {
   if (!editor) {
     return (
       <div className="border border-slate-200 rounded-xl p-8 min-h-[500px] bg-slate-50 flex items-center justify-center text-slate-400 font-medium">
-        Initializing editor toolbar...
+        Initializing canvas...
       </div>
     );
   }
 
   return (
     <div
-      className="border border-slate-200 rounded-xl bg-white shadow-sm hover:shadow-md transition-shadow cursor-text overflow-hidden"
+      className="border border-slate-200/80 print:border-none rounded-xl bg-white shadow-xs print:shadow-none hover:shadow-md transition-shadow cursor-text overflow-hidden"
       onClick={() => editor.chain().focus().run()}
     >
-      {/* Floating Toolbar */}
+      {/* Floating Toolbar - Hidden When Printing */}
       <div
-        className="print:hidden border-b border-slate-200 p-2.5 bg-slate-50/80 backdrop-blur flex flex-wrap gap-2 items-center sticky top-0 z-10"
+        className="print:hidden border-b border-slate-200 p-2.5 bg-slate-50/90 backdrop-blur-md flex flex-wrap gap-2 items-center sticky top-0 z-10"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Style & Heading Selector */}
         <select
           onChange={(e) => {
             const val = e.target.value;
@@ -85,7 +81,7 @@ function EditorInstance({ content = '', onChange }: EditorProps) {
             else if (val === 'h2') editor.chain().focus().toggleHeading({ level: 2 }).run();
             else if (val === 'h3') editor.chain().focus().toggleHeading({ level: 3 }).run();
           }}
-          className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-medium bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-semibold bg-white text-slate-700 shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
           value={
             editor.isActive('heading', { level: 1 })
               ? 'h1'
@@ -104,13 +100,12 @@ function EditorInstance({ content = '', onChange }: EditorProps) {
 
         <span className="text-slate-300 font-light">|</span>
 
-        {/* Formatting Tools */}
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleBold().run()}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition ${
+          className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition-all active:scale-[0.98] ${
             editor.isActive('bold')
-              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
               : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
           }`}
         >
@@ -119,9 +114,9 @@ function EditorInstance({ content = '', onChange }: EditorProps) {
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleItalic().run()}
-          className={`px-3 py-1.5 text-xs font-semibold italic rounded-lg border transition ${
+          className={`px-3 py-1.5 text-xs font-bold italic rounded-xl border transition-all active:scale-[0.98] ${
             editor.isActive('italic')
-              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
               : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
           }`}
         >
@@ -130,13 +125,12 @@ function EditorInstance({ content = '', onChange }: EditorProps) {
 
         <span className="text-slate-300 font-light">|</span>
 
-        {/* Lists */}
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleBulletList().run()}
-          className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition ${
+          className={`px-3 py-1.5 text-xs font-semibold rounded-xl border transition-all active:scale-[0.98] ${
             editor.isActive('bulletList')
-              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
               : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
           }`}
         >
@@ -145,9 +139,9 @@ function EditorInstance({ content = '', onChange }: EditorProps) {
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition ${
+          className={`px-3 py-1.5 text-xs font-semibold rounded-xl border transition-all active:scale-[0.98] ${
             editor.isActive('orderedList')
-              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
               : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
           }`}
         >
@@ -155,7 +149,6 @@ function EditorInstance({ content = '', onChange }: EditorProps) {
         </button>
       </div>
 
-      {/* Tiptap Canvas */}
       <EditorContent editor={editor} />
     </div>
   );
