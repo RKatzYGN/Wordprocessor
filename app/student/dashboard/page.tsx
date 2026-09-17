@@ -45,16 +45,29 @@ export default function StudentDashboard() {
     fetchData();
   }, []);
 
+// Create New Document
   const handleCreateDocument = async () => {
     setCreatingDoc(true);
+    
+    // 1. Get the current logged-in user
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      alert('You must be logged in to create a document.');
+      setCreatingDoc(false);
+      return;
+    }
+
     const folderIdToAssign = selectedFolder !== 'all' && selectedFolder !== 'none' ? selectedFolder : null;
 
+    // 2. Insert with student_id included
     const { data, error } = await supabase
       .from('assignments')
       .insert([
         {
           title: 'Untitled Document',
           content: '',
+          student_id: user.id, // Satisfies the NOT NULL constraint
           folder_id: folderIdToAssign,
           updated_at: new Date().toISOString(),
         },
