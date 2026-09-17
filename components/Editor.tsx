@@ -1,7 +1,49 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import TextStyle from '@tiptap/extension-text-style';
+import Extension from '@tiptap/core';
+
+// Custom Tiptap extension for inline pixel/pt font sizing
+const FontSize = Extension.create({
+  name: 'fontSize',
+  addOptions() {
+    return { types: ['textStyle'] };
+  },
+  addGlobalAttributes() {
+    return [
+      {
+        types: this.options.types,
+        attributes: {
+          fontSize: {
+            default: null,
+            parseHTML: (element) => element.style.fontSize?.replace(/['"]+/g, ''),
+            renderHTML: (attributes) => {
+              if (!attributes.fontSize) return {};
+              return { style: `font-size: ${attributes.fontSize}` };
+            },
+          },
+        },
+      },
+    ];
+  },
+  addCommands() {
+    return {
+      setFontSize:
+        (fontSize: string) =>
+        ({ chain }) => {
+          return chain().setMark('textStyle', { fontSize }).run();
+        },
+      unsetFontSize:
+        () =>
+        ({ chain }) => {
+          return chain().setMark('textStyle', { fontSize: null }).run();
+        },
+    };
+  },
+});
 
 interface EditorProps {
   content?: string;
@@ -12,12 +54,14 @@ export default function Editor({ content = '', onChange }: EditorProps) {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        heading: {
-          levels: [1, 2, 3],
-        },
+        heading: { levels: [1, 2, 3] },
       }),
+      TextStyle,
+      FontSize,
     ],
     content: typeof content === 'string' ? content : '',
+    // Automatically focus blinking cursor when loaded
+    autofocus: 'end',
     onUpdate: ({ editor }) => {
       if (onChange) {
         onChange(editor.getHTML());
@@ -25,32 +69,38 @@ export default function Editor({ content = '', onChange }: EditorProps) {
     },
     editorProps: {
       attributes: {
-        // Keeps cursor visible and fills container space
         class:
-          'prose max-w-none focus:outline-none min-h-[400px] p-4 text-black cursor-text',
+          'prose max-w-none focus:outline-none min-h-[480px] p-6 text-slate-800 cursor-text leading-relaxed text-base',
       },
     },
   });
 
+  // Backup auto-focus trigger
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) {
+      editor.commands.focus('end');
+    }
+  }, [editor]);
+
   if (!editor) {
     return (
-      <div className="border rounded-md p-4 min-h-[400px] bg-gray-50 flex items-center justify-center text-gray-400">
-        Initializing editor...
+      <div className="border border-slate-200 rounded-xl p-8 min-h-[500px] bg-slate-50 flex items-center justify-center text-slate-400 font-medium">
+        Loading editor...
       </div>
     );
   }
 
   return (
     <div
-      className="border rounded-md bg-white shadow-sm cursor-text"
+      className="border border-slate-200 rounded-xl bg-white shadow-sm hover:shadow-md transition-shadow cursor-text overflow-hidden"
       onClick={() => editor.chain().focus().run()}
     >
-      {/* Toolbar - Hidden when printing */}
+      {/* Modern Floating Toolbar */}
       <div
-        className="print:hidden border-b p-2 bg-gray-50 flex flex-wrap gap-2 items-center rounded-t-md"
+        className="print:hidden border-b border-slate-200 p-2.5 bg-slate-50/80 backdrop-blur flex flex-wrap gap-2 items-center sticky top-0 z-10"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Font Size / Heading Selector */}
+        {/* Style Preset Selector */}
         <select
           onChange={(e) => {
             const val = e.target.value;
@@ -59,7 +109,7 @@ export default function Editor({ content = '', onChange }: EditorProps) {
             else if (val === 'h2') editor.chain().focus().toggleHeading({ level: 2 }).run();
             else if (val === 'h3') editor.chain().focus().toggleHeading({ level: 3 }).run();
           }}
-          className="border rounded px-2 py-1 text-sm bg-white text-black"
+          className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-medium bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           value={
             editor.isActive('heading', { level: 1 })
               ? 'h1'
@@ -70,20 +120,45 @@ export default function Editor({ content = '', onChange }: EditorProps) {
               : 'p'
           }
         >
-          <option value="p">Normal text</option>
-          <option value="h1">Heading 1 (Large)</option>
-          <option value="h2">Heading 2 (Medium)</option>
-          <option value="h3">Heading 3 (Small)</option>
+          <option value="p">Paragraph</option>
+          <option value="h1">Heading 1</option>
+          <option value="h2">Heading 2</option>
+          <option value="h3">Heading 3</option>
         </select>
 
-        <span className="text-gray-300">|</span>
+        {/* Custom Font Size Selector */}
+        <select
+          onChange={(e) => {
+            const size = e.target.value;
+            if (size === 'normal') {
+              // @ts-ignore
+              editor.chain().focus().unsetFontSize().run();
+            } else {
+              // @ts-ignore
+              editor.chain().focus().setFontSize(size).run();
+            }
+          }}
+          className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-medium bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          defaultValue="normal"
+        >
+          <option value="12px">12 pt (Small)</option>
+          <option value="normal">16 pt (Normal)</option>
+          <option value="18px">18 pt (Medium)</option>
+          <option value="24px">24 pt (Large)</option>
+          <option value="32px">32 pt (X-Large)</option>
+          <option value="48px">48 pt (Huge)</option>
+        </select>
 
-        {/* Formatting Buttons */}
+        <span className="text-slate-300 font-light">|</span>
+
+        {/* Formatting Tools */}
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleBold().run()}
-          className={`px-3 py-1 text-sm border rounded font-bold ${
-            editor.isActive('bold') ? 'bg-gray-800 text-white' : 'bg-white text-black'
+          className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition ${
+            editor.isActive('bold')
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
           }`}
         >
           B
@@ -91,21 +166,25 @@ export default function Editor({ content = '', onChange }: EditorProps) {
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleItalic().run()}
-          className={`px-3 py-1 text-sm border rounded italic ${
-            editor.isActive('italic') ? 'bg-gray-800 text-white' : 'bg-white text-black'
+          className={`px-3 py-1.5 text-xs font-semibold italic rounded-lg border transition ${
+            editor.isActive('italic')
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
           }`}
         >
           I
         </button>
 
-        <span className="text-gray-300">|</span>
+        <span className="text-slate-300 font-light">|</span>
 
-        {/* List Buttons */}
+        {/* Lists */}
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleBulletList().run()}
-          className={`px-3 py-1 text-sm border rounded ${
-            editor.isActive('bulletList') ? 'bg-gray-800 text-white' : 'bg-white text-black'
+          className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition ${
+            editor.isActive('bulletList')
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
           }`}
         >
           • Bullet List
@@ -113,15 +192,17 @@ export default function Editor({ content = '', onChange }: EditorProps) {
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          className={`px-3 py-1 text-sm border rounded ${
-            editor.isActive('orderedList') ? 'bg-gray-800 text-white' : 'bg-white text-black'
+          className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition ${
+            editor.isActive('orderedList')
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
           }`}
         >
           1. Numbered List
         </button>
       </div>
 
-      {/* Editable Canvas */}
+      {/* Editor Surface */}
       <EditorContent editor={editor} />
     </div>
   );
