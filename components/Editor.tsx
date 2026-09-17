@@ -56,12 +56,10 @@ export default function Editor({ content = '', onChange }: EditorProps) {
       className="border border-slate-200 rounded-xl bg-white shadow-sm hover:shadow-md transition-shadow cursor-text overflow-hidden"
       onClick={() => editor.chain().focus().run()}
     >
-      {/* Floating Toolbar */}
       <div
         className="print:hidden border-b border-slate-200 p-2.5 bg-slate-50/80 backdrop-blur flex flex-wrap gap-2 items-center sticky top-0 z-10"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Style & Text Size Selector */}
         <select
           onChange={(e) => {
             const val = e.target.value;
@@ -93,7 +91,6 @@ export default function Editor({ content = '', onChange }: EditorProps) {
 
         <span className="text-slate-300 font-light">|</span>
 
-        {/* Formatting Buttons */}
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleBold().run()}
@@ -119,7 +116,6 @@ export default function Editor({ content = '', onChange }: EditorProps) {
 
         <span className="text-slate-300 font-light">|</span>
 
-        {/* Lists */}
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleBulletList().run()}
@@ -144,7 +140,6 @@ export default function Editor({ content = '', onChange }: EditorProps) {
         </button>
       </div>
 
-      {/* Canvas */}
       <EditorContent editor={editor} />
     </div>
   );
