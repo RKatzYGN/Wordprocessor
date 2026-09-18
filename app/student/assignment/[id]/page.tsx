@@ -4,32 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
-{/* Read-only Banner for Submitted Documents */}
-{(status === 'submitted' || status === 'graded') && (
-  <div className="bg-amber-50 border border-amber-200/80 text-amber-900 rounded-xl p-3.5 text-xs font-medium flex items-center justify-between">
-    <span>🔒 This assignment has been submitted to your teacher and is currently locked for editing.</span>
-    <span className="font-bold uppercase tracking-wider text-[10px] bg-amber-200/60 px-2 py-0.5 rounded-md">
-      Read Only
-    </span>
-  </div>
-)}
 
-{/* Title Input (Disabled when submitted) */}
-<input
-  type="text"
-  disabled={status === 'submitted' || status === 'graded'}
-  value={title}
-  onChange={(e) => setTitle(e.target.value)}
-  className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 border-b border-slate-200/80 pb-3 focus:outline-none disabled:bg-transparent disabled:opacity-80"
-  placeholder="Document Title"
-/>
-
-{/* Tiptap Editor Canvas */}
-<Editor 
-  content={content} 
-  editable={status !== 'submitted' && status !== 'graded'} 
-  onChange={(html) => setContent(html)} 
-/>
 const Editor = dynamic(() => import('@/components/Editor'), {
   ssr: false,
   loading: () => (
@@ -291,15 +266,31 @@ function AssignmentPageContent() {
 
         {/* Document Editor */}
         <main className="bg-white print:bg-white rounded-2xl border border-slate-200/80 print:border-none p-6 sm:p-10 shadow-xs space-y-6">
+         {/* 📍 SNIPPET 1: Read-Only Banner (Add directly inside <main>) */}
+          {(status === 'submitted' || status === 'graded') && (
+            <div className="bg-amber-50 border border-amber-200/80 text-amber-900 rounded-xl p-3.5 text-xs font-medium flex items-center justify-between">
+              <span>🔒 This assignment has been submitted to your teacher and is currently locked for editing.</span>
+              <span className="font-bold uppercase tracking-wider text-[10px] bg-amber-200/60 px-2 py-0.5 rounded-md">
+                Read Only
+              </span>
+            </div>
+          )}
+
+          {/* Title Input (Update existing input with disabled attribute) */}
           <input
             type="text"
+            disabled={status === 'submitted' || status === 'graded'}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 border-b border-slate-200/80 pb-3 focus:outline-none"
+            className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 border-b border-slate-200/80 pb-3 focus:outline-none disabled:bg-transparent disabled:opacity-80"
             placeholder="Document Title"
           />
 
-          <Editor content={content} onChange={(html) => setContent(html)} />
+          {/* 📍 SNIPPET 2: Editor (Update your existing <Editor /> call with the editable prop) */}
+          <Editor 
+            content={content} 
+            editable={status !== 'submitted' && status !== 'graded'} 
+            onChange={(html) => setContent(html)}
         </main>
       </div>
     </div>
