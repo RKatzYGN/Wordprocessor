@@ -94,27 +94,66 @@ function TeacherViewerContent() {
     setComments(comments.filter((c) => c.id !== id));
   };
 
+  // Return to Student & Burn Comments into PDF
   const handleReturnToStudent = async () => {
     if (!assignmentId) return;
     setSaving(true);
 
-    const { error } = await supabase
-      .from('assignments')
-      .update({
-        grade,
-        feedback: overallFeedback,
-        floating_comments: comments,
-        status: 'graded',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', assignmentId);
+    try {
+      // 1. Convert paper canvas + floating comments to PDF Blob
+      // @ts-ignore
+      const html2pdf = (await import('html2pdf.js')).default;
+      const element = document.getElementById('paper-canvas');
 
-    if (error) {
-      alert(`Error returning assignment: ${error.message}`);
-    } else {
-      alert(`Returned to ${studentName} with feedback and grade!`);
+      const opt = {
+        margin: 0.5,
+        filename: `${title}_Graded.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
+      };
+
+      const pdfBlob = await html2pdf().set(opt).from(element).output('blob');
+      const filePath = `graded/${assignmentId}_graded_${Date.now()}.pdf`;
+
+      // 2. Upload Marked-up PDF to Supabase Storage
+      const { error: storageError } = await supabase.storage
+        .from('assignment_pdfs')
+        .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true });
+
+      let gradedPdfUrl = pdfUrl;
+      if (!storageError) {
+        const { data: urlData } = supabase.storage
+          .from('assignment_pdfs')
+          .getPublicUrl(filePath);
+        gradedPdfUrl = urlData.publicUrl;
+      }
+
+      // 3. Update database record
+      const { error } = await supabase
+        .from('assignments')
+        .update({
+          grade,
+          feedback: overallFeedback,
+          floating_comments: comments,
+          pdf_url: gradedPdfUrl,
+          status: 'graded',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', assignmentId);
+
+      if (error) {
+        alert(`Error returning assignment: ${error.message}`);
+      } else {
+        alert(`Assignment returned to ${studentName} with marked-up PDF!`);
+        router.push('/teacher/dashboard');
+      }
+    } catch (err: any) {
+      console.error('Error generating graded PDF:', err);
+      alert('Returned to student with web markups.');
       router.push('/teacher/dashboard');
     }
+
     setSaving(false);
   };
 
@@ -128,8 +167,23 @@ function TeacherViewerContent() {
 
   return (
     <div className="min-h-screen bg-slate-100/70 print:bg-white pb-16">
-      
-      {/* Top Fixed Workspace Header */}
+      <style jsx global>{`
+        @media print {
+          header, .no-print {
+            display: none !important;
+          }
+          body {
+            background: white !important;
+          }
+          #paper-canvas {
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+          }
+        }
+      `}</style>
+
+      {/* Top Workspace Header */}
       <header className="no-print sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200 px-6 py-3.5 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-xs">
         <div className="flex items-center gap-4">
           <button
@@ -167,7 +221,7 @@ function TeacherViewerContent() {
               rel="noopener noreferrer"
               className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-xl transition"
             >
-              📥 View PDF File
+              📥 View Original PDF
             </a>
           )}
 
@@ -183,15 +237,15 @@ function TeacherViewerContent() {
             disabled={saving}
             className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl shadow-xs transition disabled:opacity-50"
           >
-            {saving ? 'Processing...' : '✉️ Return to Student'}
+            {saving ? 'Generating Graded PDF...' : '✉️ Return to Student'}
           </button>
         </div>
       </header>
 
-      {/* Main Workspace */}
+      {/* Main Workspace Body */}
       <div className="max-w-5xl mx-auto mt-8 px-4 space-y-6">
         
-        {/* Grade & Summary Card */}
+        {/* Grade & Summary Feedback Card */}
         <div className="no-print bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
           <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
             Grade & Summary Feedback
@@ -215,7 +269,7 @@ function TeacherViewerContent() {
               </label>
               <input
                 type="text"
-                placeholder="Great structure and arguments! Review floating markup notes on your text below..."
+                placeholder="Great structure and arguments! Review floating markup notes below..."
                 value={overallFeedback}
                 onChange={(e) => setOverallFeedback(e.target.value)}
                 className="w-full border border-slate-200 rounded-xl p-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -224,9 +278,10 @@ function TeacherViewerContent() {
           </div>
         </div>
 
-        {/* Interactive Workspace Document Canvas */}
+        {/* Workspace Canvas Paper */}
         <div
           ref={paperRef}
+          id="paper-canvas"
           onClick={handlePaperClick}
           className={`relative bg-white border border-slate-200/80 rounded-2xl shadow-md p-8 sm:p-14 min-h-[750px] space-y-6 transition-all ${
             isAddingComment ? 'cursor-crosshair ring-2 ring-amber-400/50' : 'cursor-default'
@@ -239,7 +294,6 @@ function TeacherViewerContent() {
             </div>
           </div>
 
-          {/* Student Work Render */}
           <div
             className="prose prose-slate max-w-none text-slate-800 leading-relaxed text-base"
             dangerouslySetInnerHTML={{
@@ -247,7 +301,7 @@ function TeacherViewerContent() {
             }}
           />
 
-          {/* Floating Teacher Markups */}
+          {/* Positioned Floating Teacher Markups */}
           {comments.map((comment) => (
             <div
               key={comment.id}
