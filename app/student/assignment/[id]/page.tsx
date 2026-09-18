@@ -97,7 +97,7 @@ function StudentAssignmentContent() {
     setSaving(false);
   };
 
-  // Submit Assignment & Convert to PDF
+  // Submit Assignment & Generate Initial PDF
   const handleSubmitAssignment = async () => {
     if (!assignmentId) return;
 
@@ -109,7 +109,6 @@ function StudentAssignmentContent() {
     setSubmitting(true);
 
     try {
-      // 1. Fetch current student identity
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -118,7 +117,7 @@ function StudentAssignmentContent() {
         user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Student';
       const studentEmail = user?.email || 'student@school.edu';
 
-      // 2. Dynamic client-side import of html2pdf library
+      // @ts-ignore
       const html2pdf = (await import('html2pdf.js')).default;
       const element = document.getElementById('student-canvas-paper');
 
@@ -130,11 +129,9 @@ function StudentAssignmentContent() {
         jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
       };
 
-      // 3. Generate PDF Blob
       const pdfBlob = await html2pdf().set(opt).from(element).output('blob');
       const filePath = `submissions/${assignmentId}_${Date.now()}.pdf`;
 
-      // 4. Upload PDF Blob to Supabase Storage Bucket
       const { error: storageError } = await supabase.storage
         .from('assignment_pdfs')
         .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true });
@@ -147,7 +144,6 @@ function StudentAssignmentContent() {
         generatedPublicUrl = urlData.publicUrl;
       }
 
-      // 5. Update Database Record
       const { error: dbError } = await supabase
         .from('assignments')
         .update({
@@ -170,7 +166,7 @@ function StudentAssignmentContent() {
         alert('Assignment successfully submitted as PDF to your teacher!');
       }
     } catch (err: any) {
-      console.error('Submission pipeline failed:', err);
+      console.error('Submission error:', err);
       alert('Document submitted to teacher queue.');
       setStatus('submitted');
     }
@@ -178,7 +174,7 @@ function StudentAssignmentContent() {
     setSubmitting(false);
   };
 
-  // USB Storage Actions
+  // USB File Save
   const handleSaveToUSB = async () => {
     const filename = `${title || 'Untitled Document'}.html`;
     if ('showSaveFilePicker' in window) {
@@ -207,6 +203,7 @@ function StudentAssignmentContent() {
     document.body.removeChild(link);
   };
 
+  // USB File Open
   const handleOpenFromUSB = async (e?: React.ChangeEvent<HTMLInputElement>) => {
     const file = e?.target?.files?.[0];
     if (!file) return;
@@ -277,6 +274,17 @@ function StudentAssignmentContent() {
               💾 USB Save
             </button>
 
+            {pdfUrl && (
+              <a
+                href={pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl shadow-xs transition"
+              >
+                📥 Download PDF
+              </a>
+            )}
+
             <button
               onClick={() => window.print()}
               className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl"
@@ -314,11 +322,11 @@ function StudentAssignmentContent() {
           </div>
         </header>
 
-        {/* Teacher Grade & Review Feedback Banner */}
+        {/* Teacher Grade & Feedback Banner */}
         {(grade || feedback) && (
           <div className="bg-purple-50 border border-purple-200 rounded-2xl p-6 space-y-2">
             <div className="flex justify-between items-center">
-              <h3 className="text-sm font-bold text-purple-900">Teacher Evaluation & Review</h3>
+              <h3 className="text-sm font-bold text-purple-900">Teacher Evaluation & Feedback</h3>
               {grade && (
                 <span className="px-3 py-1 bg-purple-600 text-white font-bold text-xs rounded-xl">
                   Grade: {grade}
@@ -329,7 +337,7 @@ function StudentAssignmentContent() {
           </div>
         )}
 
-        {/* Document Body Surface */}
+        {/* Document Surface */}
         <main
           id="student-canvas-paper"
           className="relative bg-white print:bg-white rounded-2xl border border-slate-200/80 print:border-none p-6 sm:p-10 shadow-xs space-y-6 min-h-[650px]"
@@ -358,7 +366,7 @@ function StudentAssignmentContent() {
             onChange={(html) => setContent(html)}
           />
 
-          {/* Positioned Floating Comments from Teacher */}
+          {/* Positioned Floating Comments */}
           {floatingComments.map((comment) => (
             <div
               key={comment.id}
