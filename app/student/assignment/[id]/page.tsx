@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 
+// Load Editor strictly on client side
 const Editor = dynamic(() => import('@/components/Editor'), {
   ssr: false,
   loading: () => (
@@ -13,6 +14,13 @@ const Editor = dynamic(() => import('@/components/Editor'), {
     </div>
   ),
 });
+
+interface FloatingComment {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+}
 
 function AssignmentPageContent() {
   const params = useParams();
@@ -30,6 +38,7 @@ function AssignmentPageContent() {
   const [status, setStatus] = useState<'draft' | 'submitted' | 'graded'>('draft');
   const [grade, setGrade] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [floatingComments, setFloatingComments] = useState<FloatingComment[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -53,6 +62,9 @@ function AssignmentPageContent() {
         setStatus(data.status || 'draft');
         setGrade(data.grade || null);
         setFeedback(data.feedback || null);
+        if (Array.isArray(data.floating_comments)) {
+          setFloatingComments(data.floating_comments);
+        }
       }
       setLoading(false);
     }
@@ -60,6 +72,7 @@ function AssignmentPageContent() {
     fetchAssignment();
   }, [assignmentId]);
 
+  // Save Draft to Supabase
   const handleSave = async () => {
     if (!assignmentId) return;
     setSaving(true);
@@ -82,6 +95,7 @@ function AssignmentPageContent() {
     setSaving(false);
   };
 
+  // Submit Assignment
   const handleSubmitAssignment = async () => {
     if (!assignmentId) return;
 
@@ -113,6 +127,7 @@ function AssignmentPageContent() {
     setSubmitting(false);
   };
 
+  // USB File Save
   const handleSaveToUSB = async () => {
     const filename = `${title || 'Untitled Document'}.html`;
     if ('showSaveFilePicker' in window) {
@@ -141,6 +156,7 @@ function AssignmentPageContent() {
     document.body.removeChild(link);
   };
 
+  // USB File Open
   const handleOpenFromUSB = async (e?: React.ChangeEvent<HTMLInputElement>) => {
     const file = e?.target?.files?.[0];
     if (!file) return;
@@ -185,10 +201,16 @@ function AssignmentPageContent() {
             padding: 0 !important;
             margin: 0 !important;
           }
+          .floating-textbox {
+            border: 1px solid #cbd5e1 !important;
+            box-shadow: none !important;
+          }
         }
       `}</style>
 
       <div className="max-w-5xl mx-auto space-y-6 print:space-y-4 print:p-0 print:m-0">
+        
+        {/* Header Action Bar */}
         <header className="no-print print:hidden flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/80 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
           <button
             onClick={() => router.push('/student/dashboard')}
@@ -249,6 +271,7 @@ function AssignmentPageContent() {
           </div>
         </header>
 
+        {/* Teacher Evaluation & Overall Feedback Banner */}
         {(grade || feedback) && (
           <div className="bg-purple-50 border border-purple-200 rounded-2xl p-5 space-y-1">
             <div className="flex justify-between items-center">
@@ -263,7 +286,10 @@ function AssignmentPageContent() {
           </div>
         )}
 
-        <main className="bg-white print:bg-white rounded-2xl border border-slate-200/80 print:border-none p-6 sm:p-10 shadow-xs space-y-6">
+        {/* Main Document Body */}
+        <main className="relative bg-white print:bg-white rounded-2xl border border-slate-200/80 print:border-none p-6 sm:p-10 shadow-xs space-y-6 min-h-[600px]">
+          
+          {/* Read-Only Status Banner */}
           {isReadOnly && (
             <div className="bg-amber-50 border border-amber-200/80 text-amber-900 rounded-xl p-3.5 text-xs font-medium flex items-center justify-between">
               <span>🔒 This assignment has been submitted to your teacher and is currently locked for editing.</span>
@@ -273,6 +299,7 @@ function AssignmentPageContent() {
             </div>
           )}
 
+          {/* Title Input */}
           <input
             type="text"
             disabled={isReadOnly}
@@ -282,11 +309,27 @@ function AssignmentPageContent() {
             placeholder="Document Title"
           />
 
+          {/* Tiptap Rich Text Editor */}
           <Editor
             content={content}
             editable={!isReadOnly}
             onChange={(html) => setContent(html)}
           />
+
+          {/* Render Floating Teacher Markup Textboxes */}
+          {floatingComments.map((comment) => (
+            <div
+              key={comment.id}
+              style={{ left: `${comment.x}%`, top: `${comment.y}px` }}
+              className="floating-textbox absolute w-60 bg-amber-50/95 backdrop-blur-xs border border-amber-300 rounded-xl p-3 shadow-md z-20 text-xs text-amber-950 font-medium space-y-1"
+            >
+              <div className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">
+                📌 Teacher Note
+              </div>
+              <p className="leading-relaxed whitespace-pre-wrap">{comment.text}</p>
+            </div>
+          ))}
+
         </main>
       </div>
     </div>
