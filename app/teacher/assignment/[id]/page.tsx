@@ -6,8 +6,8 @@ import { supabase } from '@/lib/supabase';
 
 interface FloatingComment {
   id: string;
-  x: number; // Horizontal position % relative to canvas
-  y: number; // Vertical position (px) relative to canvas
+  x: number;
+  y: number;
   text: string;
 }
 
@@ -24,16 +24,18 @@ function TeacherViewerContent() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [studentName, setStudentName] = useState('');
   const [studentEmail, setStudentEmail] = useState('');
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [grade, setGrade] = useState('');
   const [overallFeedback, setOverallFeedback] = useState('');
   const [comments, setComments] = useState<FloatingComment[]>([]);
-  
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isAddingComment, setIsAddingComment] = useState(false);
 
-  const canvasRef = useRef<HTMLDivElement>(null);
+  const paperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!assignmentId) return;
@@ -50,9 +52,11 @@ function TeacherViewerContent() {
       } else if (data) {
         setTitle(data.title || 'Untitled Assignment');
         setContent(data.content || '');
+        setStudentName(data.student_name || 'Student Submission');
+        setStudentEmail(data.user_email || 'student@school.edu');
+        setPdfUrl(data.pdf_url || null);
         setGrade(data.grade || '');
         setOverallFeedback(data.feedback || '');
-        setStudentEmail(data.user_email || 'Student Submission');
         if (Array.isArray(data.floating_comments)) {
           setComments(data.floating_comments);
         }
@@ -63,19 +67,19 @@ function TeacherViewerContent() {
     fetchAssignment();
   }, [assignmentId]);
 
-  // Click handler to drop a comment anywhere on the page
-  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isAddingComment || !canvasRef.current) return;
+  // Click to drop floating comment textbox
+  const handlePaperClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isAddingComment || !paperRef.current) return;
 
-    const rect = canvasRef.current.getBoundingClientRect();
+    const rect = paperRef.current.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
     const y = e.clientY - rect.top;
 
     const newComment: FloatingComment = {
       id: Date.now().toString(),
-      x: Math.min(Math.max(x, 5), 80), // keep within canvas bounds
+      x: Math.min(Math.max(x, 5), 75),
       y: Math.max(y, 10),
-      text: 'New feedback note...',
+      text: 'New teacher correction...',
     };
 
     setComments([...comments, newComment]);
@@ -108,7 +112,7 @@ function TeacherViewerContent() {
     if (error) {
       alert(`Error returning assignment: ${error.message}`);
     } else {
-      alert('Assignment successfully returned to student with markups!');
+      alert(`Returned to ${studentName} with feedback and grade!`);
       router.push('/teacher/dashboard');
     }
     setSaving(false);
@@ -117,7 +121,7 @@ function TeacherViewerContent() {
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-500 font-medium">
-        Loading document workspace...
+        Loading teacher evaluation workspace...
       </div>
     );
   }
@@ -125,28 +129,7 @@ function TeacherViewerContent() {
   return (
     <div className="min-h-screen bg-slate-100/70 print:bg-white pb-16">
       
-      {/* Strict Print Rule for Canvas */}
-      <style jsx global>{`
-        @media print {
-          header, .no-print {
-            display: none !important;
-          }
-          body {
-            background: white !important;
-          }
-          #paper-canvas {
-            border: none !important;
-            box-shadow: none !important;
-            padding: 0 !important;
-          }
-          .floating-textbox {
-            border: 1px solid #cbd5e1 !important;
-            box-shadow: none !important;
-          }
-        }
-      `}</style>
-
-      {/* Top Floating Control Bar */}
+      {/* Top Fixed Workspace Header */}
       <header className="no-print sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200 px-6 py-3.5 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-xs">
         <div className="flex items-center gap-4">
           <button
@@ -156,8 +139,12 @@ function TeacherViewerContent() {
             ← Back to Queue
           </button>
           <div>
-            <h1 className="text-base font-bold text-slate-900 truncate max-w-xs sm:max-w-md">{title}</h1>
-            <p className="text-[11px] text-slate-500">Student: <span className="font-semibold">{studentEmail}</span></p>
+            <h1 className="text-base font-bold text-slate-900 truncate max-w-xs sm:max-w-md">
+              {title}
+            </h1>
+            <p className="text-[11px] text-slate-500">
+              Student: <span className="font-semibold text-slate-800">{studentName}</span> ({studentEmail})
+            </p>
           </div>
         </div>
 
@@ -170,8 +157,19 @@ function TeacherViewerContent() {
                 : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200/80'
             }`}
           >
-            {isAddingComment ? '📍 Click Paper to Drop Comment' : '💬 Add Floating Comment'}
+            {isAddingComment ? '📍 Click Document to Drop Note' : '💬 Add Floating Comment'}
           </button>
+
+          {pdfUrl && (
+            <a
+              href={pdfUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-xl transition"
+            >
+              📥 View PDF File
+            </a>
+          )}
 
           <button
             onClick={() => window.print()}
@@ -185,20 +183,24 @@ function TeacherViewerContent() {
             disabled={saving}
             className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl shadow-xs transition disabled:opacity-50"
           >
-            {saving ? 'Saving...' : '✉️ Return to Student'}
+            {saving ? 'Processing...' : '✉️ Return to Student'}
           </button>
         </div>
       </header>
 
-      {/* Main Workspace Body */}
+      {/* Main Workspace */}
       <div className="max-w-5xl mx-auto mt-8 px-4 space-y-6">
         
-        {/* Top Evaluation & Score Card */}
+        {/* Grade & Summary Card */}
         <div className="no-print bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-          <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Evaluation & Summary Grade</h3>
+          <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+            Grade & Summary Feedback
+          </h3>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div className="sm:col-span-1">
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Grade / Score</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                Grade / Score
+              </label>
               <input
                 type="text"
                 placeholder="e.g. 95%, A"
@@ -208,10 +210,12 @@ function TeacherViewerContent() {
               />
             </div>
             <div className="sm:col-span-3">
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Overall Summary Comments</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                Overall Feedback Comments
+              </label>
               <input
                 type="text"
-                placeholder="Great job overall! Read inline notes on your essay below..."
+                placeholder="Great structure and arguments! Review floating markup notes on your text below..."
                 value={overallFeedback}
                 onChange={(e) => setOverallFeedback(e.target.value)}
                 className="w-full border border-slate-200 rounded-xl p-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -220,21 +224,22 @@ function TeacherViewerContent() {
           </div>
         </div>
 
-        {/* Document Canvas (Document Paper with Positioned Floating Comments) */}
+        {/* Interactive Workspace Document Canvas */}
         <div
-          ref={canvasRef}
-          id="paper-canvas"
-          onClick={handleCanvasClick}
-          className={`relative bg-white border border-slate-200/80 rounded-2xl shadow-md p-8 sm:p-14 min-h-[750px] space-y-6 transition-cursor ${
+          ref={paperRef}
+          onClick={handlePaperClick}
+          className={`relative bg-white border border-slate-200/80 rounded-2xl shadow-md p-8 sm:p-14 min-h-[750px] space-y-6 transition-all ${
             isAddingComment ? 'cursor-crosshair ring-2 ring-amber-400/50' : 'cursor-default'
           }`}
         >
-          {/* Document Header */}
-          <div className="border-b border-slate-100 pb-4">
-            <h1 className="text-3xl font-bold text-slate-900">{title}</h1>
+          <div className="border-b border-slate-100 pb-4 flex justify-between items-end">
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900">{title}</h1>
+              <p className="text-xs text-slate-400 mt-1">Submitted by {studentName}</p>
+            </div>
           </div>
 
-          {/* Student Document Render */}
+          {/* Student Work Render */}
           <div
             className="prose prose-slate max-w-none text-slate-800 leading-relaxed text-base"
             dangerouslySetInnerHTML={{
@@ -242,13 +247,13 @@ function TeacherViewerContent() {
             }}
           />
 
-          {/* Positioned Floating Comment Textboxes */}
+          {/* Floating Teacher Markups */}
           {comments.map((comment) => (
             <div
               key={comment.id}
               onClick={(e) => e.stopPropagation()}
               style={{ left: `${comment.x}%`, top: `${comment.y}px` }}
-              className="floating-textbox absolute w-64 bg-amber-50/95 backdrop-blur-xs border border-amber-300 rounded-xl p-3 shadow-lg z-20 space-y-2 group transition-all"
+              className="absolute w-64 bg-amber-50/95 backdrop-blur-xs border border-amber-300 rounded-xl p-3 shadow-lg z-20 space-y-2 transition-all"
             >
               <div className="flex justify-between items-center no-print">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
@@ -275,7 +280,7 @@ function TeacherViewerContent() {
   );
 }
 
-export default function TeacherViewerPage() {
+export default function TeacherAssignmentPage() {
   return (
     <Suspense fallback={<div className="p-8 text-center text-slate-500 font-medium">Loading viewer...</div>}>
       <TeacherViewerContent />
