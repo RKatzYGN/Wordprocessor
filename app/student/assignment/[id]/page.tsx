@@ -5,7 +5,6 @@ import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 
-// Load Editor strictly on client side
 const Editor = dynamic(() => import('@/components/Editor'), {
   ssr: false,
   loading: () => (
@@ -61,7 +60,6 @@ function AssignmentPageContent() {
     fetchAssignment();
   }, [assignmentId]);
 
-  // Save Document
   const handleSave = async () => {
     if (!assignmentId) return;
     setSaving(true);
@@ -84,7 +82,6 @@ function AssignmentPageContent() {
     setSaving(false);
   };
 
-  // Submit Assignment
   const handleSubmitAssignment = async () => {
     if (!assignmentId) return;
 
@@ -116,7 +113,6 @@ function AssignmentPageContent() {
     setSubmitting(false);
   };
 
-  // USB File Actions
   const handleSaveToUSB = async () => {
     const filename = `${title || 'Untitled Document'}.html`;
     if ('showSaveFilePicker' in window) {
@@ -193,8 +189,6 @@ function AssignmentPageContent() {
       `}</style>
 
       <div className="max-w-5xl mx-auto space-y-6 print:space-y-4 print:p-0 print:m-0">
-        
-        {/* Action Header */}
         <header className="no-print print:hidden flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/80 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
           <button
             onClick={() => router.push('/student/dashboard')}
@@ -235,7 +229,6 @@ function AssignmentPageContent() {
               </button>
             )}
 
-            {/* Submit Assignment Button */}
             <button
               onClick={handleSubmitAssignment}
               disabled={submitting || isReadOnly}
@@ -256,7 +249,6 @@ function AssignmentPageContent() {
           </div>
         </header>
 
-        {/* Teacher Feedback Banner */}
         {(grade || feedback) && (
           <div className="bg-purple-50 border border-purple-200 rounded-2xl p-5 space-y-1">
             <div className="flex justify-between items-center">
@@ -271,10 +263,7 @@ function AssignmentPageContent() {
           </div>
         )}
 
-        {/* Document Body Area */}
         <main className="bg-white print:bg-white rounded-2xl border border-slate-200/80 print:border-none p-6 sm:p-10 shadow-xs space-y-6">
-          
-          {/* Read-Only Banner */}
           {isReadOnly && (
             <div className="bg-amber-50 border border-amber-200/80 text-amber-900 rounded-xl p-3.5 text-xs font-medium flex items-center justify-between">
               <span>🔒 This assignment has been submitted to your teacher and is currently locked for editing.</span>
@@ -284,7 +273,6 @@ function AssignmentPageContent() {
             </div>
           )}
 
-          {/* Title Input */}
           <input
             type="text"
             disabled={isReadOnly}
@@ -294,7 +282,6 @@ function AssignmentPageContent() {
             placeholder="Document Title"
           />
 
-          {/* Tiptap Editor Surface */}
           <Editor
             content={content}
             editable={!isReadOnly}
