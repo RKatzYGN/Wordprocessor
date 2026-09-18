@@ -12,6 +12,7 @@ interface Submission {
   student_id: string;
   grade: string | null;
   feedback: string | null;
+  student_email?: string;
 }
 
 export default function TeacherDashboard() {
@@ -25,16 +26,35 @@ export default function TeacherDashboard() {
 
   const fetchSubmissions = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+
+    // 1. Fetch submitted/graded assignments
+    const { data: assignmentsData, error: assignError } = await supabase
       .from('assignments')
       .select('*')
       .in('status', ['submitted', 'graded'])
       .order('submitted_at', { ascending: false });
 
-    if (error) {
-      console.error('Error fetching submissions:', error);
-    } else if (data) {
-      setSubmissions(data);
+    if (assignError) {
+      console.error('Error fetching submissions:', assignError);
+      setLoading(false);
+      return;
+    }
+
+    if (assignmentsData) {
+      // 2. Fetch allowed_users to map student emails/names to student_id
+      const { data: usersData } = await supabase
+        .from('allowed_users')
+        .select('email, role');
+
+      // Map submissions with student email identifiers
+      const enrichedSubmissions = assignmentsData.map((doc) => {
+        return {
+          ...doc,
+          student_email: doc.user_email || doc.student_id?.slice(0, 8) + '...',
+        };
+      });
+
+      setSubmissions(enrichedSubmissions);
     }
     setLoading(false);
   };
@@ -77,8 +97,6 @@ export default function TeacherDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50/50 p-6 md:p-10">
-      
-      {/* Global Print Rule for Modal Content */}
       <style jsx global>{`
         @media print {
           body * {
@@ -98,7 +116,7 @@ export default function TeacherDashboard() {
 
       <div className="max-w-6xl mx-auto space-y-8">
         
-        {/* Top Header */}
+        {/* Header */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">Teacher Evaluation Portal</h1>
@@ -125,12 +143,12 @@ export default function TeacherDashboard() {
             {/* Table Header Row */}
             <div className="hidden sm:grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
               <div className="col-span-5">Assignment Title</div>
-              <div className="col-span-3">Student ID</div>
+              <div className="col-span-3">Student Email / ID</div>
               <div className="col-span-2">Submitted Date</div>
               <div className="col-span-2 text-right">Status / Action</div>
             </div>
 
-            {/* Neat Data Rows */}
+            {/* Submissions Rows */}
             <div className="divide-y divide-slate-100">
               {submissions.map((doc) => (
                 <div
@@ -144,8 +162,8 @@ export default function TeacherDashboard() {
                     </h2>
                   </div>
 
-                  <div className="sm:col-span-3 text-xs text-slate-500 font-mono">
-                    {doc.student_id.slice(0, 8)}...
+                  <div className="sm:col-span-3 text-xs text-slate-700 font-medium truncate">
+                    👤 {doc.student_email}
                   </div>
 
                   <div className="sm:col-span-2 text-xs text-slate-500">
@@ -170,17 +188,16 @@ export default function TeacherDashboard() {
           </div>
         )}
 
-        {/* Document Review & Markup Viewer Modal */}
+        {/* Review & Feedback Modal */}
         {selectedDoc && (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-4xl w-full max-h-[92vh] overflow-y-auto space-y-6 shadow-2xl border border-slate-100">
               
-              {/* Modal Action Header */}
               <div className="flex justify-between items-start border-b border-slate-100 pb-4">
                 <div>
                   <h3 className="text-xl font-bold text-slate-900">{selectedDoc.title}</h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Student ID: <span className="font-mono">{selectedDoc.student_id}</span> • Submitted on{' '}
+                  <p className="text-xs text-slate-500 mt-1">
+                    Student: <span className="font-semibold text-slate-800">{selectedDoc.student_email}</span> • Submitted on{' '}
                     {new Date(selectedDoc.submitted_at).toLocaleString()}
                   </p>
                 </div>
@@ -213,7 +230,7 @@ export default function TeacherDashboard() {
                 />
               </div>
 
-              {/* Teacher Text Box Markup & Grading Form */}
+              {/* Teacher Form */}
               <form onSubmit={handleReturnToStudent} className="space-y-4 border-t border-slate-100 pt-6">
                 <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                   Teacher Markup & Feedback Controls
