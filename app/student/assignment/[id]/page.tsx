@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 
+// Load Editor strictly on client side
 const Editor = dynamic(() => import('@/components/Editor'), {
   ssr: false,
   loading: () => (
@@ -88,7 +89,7 @@ function AssignmentPageContent() {
     if (!assignmentId) return;
 
     const confirmSubmit = window.confirm(
-      'Are you sure you want to submit this assignment to your teacher?'
+      'Are you sure you want to submit this assignment to your teacher? You will not be able to edit it once submitted.'
     );
     if (!confirmSubmit) return;
 
@@ -115,7 +116,7 @@ function AssignmentPageContent() {
     setSubmitting(false);
   };
 
-  // Open & Save USB Handlers
+  // USB File Actions
   const handleSaveToUSB = async () => {
     const filename = `${title || 'Untitled Document'}.html`;
     if ('showSaveFilePicker' in window) {
@@ -166,6 +167,8 @@ function AssignmentPageContent() {
     );
   }
 
+  const isReadOnly = status === 'submitted' || status === 'graded';
+
   return (
     <div className="min-h-screen bg-slate-50/50 print:bg-white print:min-h-0 py-8 px-4 sm:px-6 lg:px-8">
       <style jsx global>{`
@@ -201,10 +204,12 @@ function AssignmentPageContent() {
           </button>
 
           <div className="flex flex-wrap items-center gap-2">
-            <label className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 text-xs font-semibold rounded-xl cursor-pointer">
-              📂 USB Open
-              <input type="file" accept=".html,.htm,.txt" onChange={handleOpenFromUSB} className="hidden" />
-            </label>
+            {!isReadOnly && (
+              <label className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 text-xs font-semibold rounded-xl cursor-pointer">
+                📂 USB Open
+                <input type="file" accept=".html,.htm,.txt" onChange={handleOpenFromUSB} className="hidden" />
+              </label>
+            )}
 
             <button
               onClick={handleSaveToUSB}
@@ -220,20 +225,22 @@ function AssignmentPageContent() {
               🖨️ Print
             </button>
 
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl disabled:opacity-50"
-            >
-              {saving ? 'Saving...' : '☁️ Save Draft'}
-            </button>
+            {!isReadOnly && (
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl disabled:opacity-50"
+              >
+                {saving ? 'Saving...' : '☁️ Save Draft'}
+              </button>
+            )}
 
             {/* Submit Assignment Button */}
             <button
               onClick={handleSubmitAssignment}
-              disabled={submitting || status === 'submitted' || status === 'graded'}
+              disabled={submitting || isReadOnly}
               className={`px-4 py-2 text-xs font-semibold rounded-xl transition ${
-                status === 'submitted' || status === 'graded'
+                isReadOnly
                   ? 'bg-purple-100 text-purple-700 cursor-default'
                   : 'bg-purple-600 hover:bg-purple-700 text-white shadow-xs'
               }`}
@@ -249,7 +256,7 @@ function AssignmentPageContent() {
           </div>
         </header>
 
-        {/* Feedback / Grade Banner */}
+        {/* Teacher Feedback Banner */}
         {(grade || feedback) && (
           <div className="bg-purple-50 border border-purple-200 rounded-2xl p-5 space-y-1">
             <div className="flex justify-between items-center">
@@ -264,10 +271,11 @@ function AssignmentPageContent() {
           </div>
         )}
 
-        {/* Document Editor */}
+        {/* Document Body Area */}
         <main className="bg-white print:bg-white rounded-2xl border border-slate-200/80 print:border-none p-6 sm:p-10 shadow-xs space-y-6">
-         {/* 📍 SNIPPET 1: Read-Only Banner (Add directly inside <main>) */}
-          {(status === 'submitted' || status === 'graded') && (
+          
+          {/* Read-Only Banner */}
+          {isReadOnly && (
             <div className="bg-amber-50 border border-amber-200/80 text-amber-900 rounded-xl p-3.5 text-xs font-medium flex items-center justify-between">
               <span>🔒 This assignment has been submitted to your teacher and is currently locked for editing.</span>
               <span className="font-bold uppercase tracking-wider text-[10px] bg-amber-200/60 px-2 py-0.5 rounded-md">
@@ -276,21 +284,22 @@ function AssignmentPageContent() {
             </div>
           )}
 
-          {/* Title Input (Update existing input with disabled attribute) */}
+          {/* Title Input */}
           <input
             type="text"
-            disabled={status === 'submitted' || status === 'graded'}
+            disabled={isReadOnly}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 border-b border-slate-200/80 pb-3 focus:outline-none disabled:bg-transparent disabled:opacity-80"
             placeholder="Document Title"
           />
 
-          {/* 📍 SNIPPET 2: Editor (Update your existing <Editor /> call with the editable prop) */}
-          <Editor 
-            content={content} 
-            editable={status !== 'submitted' && status !== 'graded'} 
+          {/* Tiptap Editor Surface */}
+          <Editor
+            content={content}
+            editable={!isReadOnly}
             onChange={(html) => setContent(html)}
+          />
         </main>
       </div>
     </div>
