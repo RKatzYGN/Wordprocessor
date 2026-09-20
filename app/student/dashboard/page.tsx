@@ -4,277 +4,192 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
-interface Folder {
-  id: string;
-  name: string;
-}
-
 interface Assignment {
   id: string;
   title: string;
-  content: string;
-  updated_at: string;
-  folder_id: string | null;
+  status: 'draft' | 'submitted' | 'graded';
+  submitted_at: string;
+  student_name?: string;
+  user_email?: string;
+  grade?: string;
 }
 
 export default function StudentDashboard() {
   const router = useRouter();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [selectedFolder, setSelectedFolder] = useState<string>('all');
-
   const [loading, setLoading] = useState(true);
-  const [creatingDoc, setCreatingDoc] = useState(false);
-  const [creatingFolder, setCreatingFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState('');
-  const [showFolderModal, setShowFolderModal] = useState(false);
+  const [studentName, setStudentName] = useState('');
 
-  const fetchData = async () => {
+  const fetchStudentAssignments = async () => {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
 
-    const [foldersRes, assignmentsRes] = await Promise.all([
-      supabase.from('folders').select('*').order('name', { ascending: true }),
-      user 
-        ? supabase.from('assignments').select('*').eq('student_id', user.id).order('updated_at', { ascending: false })
-        : supabase.from('assignments').select('*').order('updated_at', { ascending: false }),
-    ]);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-    if (foldersRes.data) setFolders(foldersRes.data);
-    if (assignmentsRes.data) setAssignments(assignmentsRes.data);
+    if (user) {
+      const name = user.user_metadata?.full_name || user.email?.split('@')[0] || 'Student';
+      setStudentName(name);
+
+      const { data, error } = await supabase
+        .from('assignments')
+        .select('*')
+        .order('updated_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching student assignments:', error);
+      } else if (data) {
+        setAssignments(data);
+      }
+    }
     setLoading(false);
   };
 
   useEffect(() => {
-    fetchData();
+    fetchStudentAssignments();
   }, []);
 
-// Create New Document
-  const handleCreateDocument = async () => {
-    setCreatingDoc(true);
-    
-    // 1. Get the current logged-in user
-    const { data: { user } } = await supabase.auth.getUser();
+  const handleCreateNew = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-    if (!user) {
-      alert('You must be logged in to create a document.');
-      setCreatingDoc(false);
-      return;
-    }
+    if (!user) return;
 
-    const folderIdToAssign = selectedFolder !== 'all' && selectedFolder !== 'none' ? selectedFolder : null;
-
-    // 2. Insert with student_id included
     const { data, error } = await supabase
       .from('assignments')
-      .insert([
-        {
-          title: 'Untitled Document',
-          content: '',
-          student_id: user.id, // Satisfies the NOT NULL constraint
-          folder_id: folderIdToAssign,
-          updated_at: new Date().toISOString(),
-        },
-      ])
+      .insert({
+        title: 'Untitled Document',
+        content: '',
+        status: 'draft',
+        student_id: user.id,
+        student_name: studentName,
+        user_email: user.email,
+      })
       .select()
       .single();
 
     if (error) {
       alert(`Error creating document: ${error.message}`);
-      setCreatingDoc(false);
     } else if (data) {
       router.push(`/student/assignment/${data.id}`);
     }
   };
 
-  const handleCreateFolder = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newFolderName.trim()) return;
+  const unsubmittedList = assignments.filter((a) => a.status === 'draft');
+  const submittedList = assignments.filter((a) => a.status === 'submitted');
+  const gradedList = assignments.filter((a) => a.status === 'graded');
 
-    setCreatingFolder(true);
-    const { error } = await supabase.from('folders').insert([{ name: newFolderName.trim() }]);
+  const renderCard = (doc: Assignment) => {
+    const displayName = doc.student_name || studentName || 'STUDENT';
 
-    if (error) {
-      alert(`Error creating folder: ${error.message}`);
-    } else {
-      setNewFolderName('');
-      setShowFolderModal(false);
-      fetchData();
-    }
-    setCreatingFolder(false);
-  };
-
-  const handleDeleteAssignment = async (e: React.MouseEvent, id: string, title: string) => {
-    e.stopPropagation();
-    const confirmDelete = window.confirm(`Delete "${title || 'Untitled Document'}" permanently?`);
-    if (!confirmDelete) return;
-
-    const { error } = await supabase.from('assignments').delete().eq('id', id);
-
-    if (error) {
-      alert(`Error deleting document: ${error.message}`);
-    } else {
-      setAssignments((prev) => prev.filter((doc) => doc.id !== id));
-    }
-  };
-
-  const filteredAssignments = assignments.filter((doc) => {
-    if (selectedFolder === 'all') return true;
-    if (selectedFolder === 'none') return !doc.folder_id;
-    return doc.folder_id === selectedFolder;
-  });
-
-  return (
-    <div className="min-h-screen bg-slate-50/50 pb-12">
-      <div className="max-w-6xl mx-auto p-6 md:p-8 space-y-8">
-        
-        {/* Header Bar */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Student Workspace</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Manage, organize, and edit your word processor assignments</p>
-          </div>
-          <div className="flex gap-2.5">
-            <button
-              onClick={() => setShowFolderModal(true)}
-              className="px-4 py-2.5 bg-slate-100 text-slate-700 font-medium text-sm rounded-xl hover:bg-slate-200 transition shadow-xs"
-            >
-              + New Folder
-            </button>
-            <button
-              onClick={handleCreateDocument}
-              disabled={creatingDoc}
-              className="px-4 py-2.5 bg-blue-600 text-white font-medium text-sm rounded-xl hover:bg-blue-700 transition shadow-sm disabled:opacity-50"
-            >
-              {creatingDoc ? 'Creating...' : '+ New Document'}
-            </button>
-          </div>
+    return (
+      <div
+        key={doc.id}
+        onClick={() => router.push(`/student/assignment/${doc.id}`)}
+        className="bg-white border border-slate-200/90 hover:border-purple-300 hover:shadow-md rounded-2xl p-5 cursor-pointer transition-all space-y-1 group"
+      >
+        <div className="text-lg font-black text-slate-900 tracking-tight uppercase group-hover:text-purple-600 transition-colors leading-tight">
+          {displayName}
+        </div>
+        <div className="text-sm font-semibold text-slate-700 leading-tight truncate">
+          {doc.title || 'Untitled Document'}
+        </div>
+        <div className="text-xs text-slate-500 font-medium leading-tight pt-1">
+          Date Submitted:{' '}
+          {doc.submitted_at
+            ? new Date(doc.submitted_at).toLocaleDateString() +
+              ' ' +
+              new Date(doc.submitted_at).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : 'Not Submitted'}
         </div>
 
-        {/* Folder Filter Bar */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 mr-2">Folders:</span>
-          <button
-            onClick={() => setSelectedFolder('all')}
-            className={`px-3.5 py-1.5 text-xs font-medium rounded-xl transition ${
-              selectedFolder === 'all'
-                ? 'bg-slate-900 text-white shadow-sm'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-            }`}
-          >
-            All Docs ({assignments.length})
-          </button>
-          <button
-            onClick={() => setSelectedFolder('none')}
-            className={`px-3.5 py-1.5 text-xs font-medium rounded-xl transition ${
-              selectedFolder === 'none'
-                ? 'bg-slate-900 text-white shadow-sm'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-            }`}
-          >
-            Unorganized
-          </button>
-          {folders.map((folder) => (
-            <button
-              key={folder.id}
-              onClick={() => setSelectedFolder(folder.id)}
-              className={`px-3.5 py-1.5 text-xs font-medium rounded-xl transition ${
-                selectedFolder === folder.id
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              📁 {folder.name}
-            </button>
-          ))}
-        </div>
-
-        {/* Documents Grid */}
-        {loading ? (
-          <div className="p-16 text-center text-slate-400 font-medium">Loading your documents...</div>
-        ) : filteredAssignments.length === 0 ? (
-          <div className="p-16 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-white text-slate-400 space-y-3">
-            <p className="text-sm font-medium">No documents in this view.</p>
-            <button
-              onClick={handleCreateDocument}
-              className="px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-xl hover:bg-blue-700 shadow-sm"
-            >
-              Create New Document
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {filteredAssignments.map((doc) => (
-              <div
-                key={doc.id}
-                onClick={() => router.push(`/student/assignment/${doc.id}`)}
-                className="p-6 border border-slate-200/80 rounded-2xl shadow-xs hover:shadow-md hover:border-slate-300 transition-all cursor-pointer bg-white flex flex-col justify-between group relative"
-              >
-                <div>
-                  <div className="flex justify-between items-start gap-2 mb-2">
-                    <h2 className="text-base font-semibold text-slate-900 truncate group-hover:text-blue-600 transition">
-                      {doc.title && doc.title.trim() !== '' ? doc.title : 'Untitled Document'}
-                    </h2>
-                    <button
-                      onClick={(e) => handleDeleteAssignment(e, doc.id, doc.title)}
-                      title="Delete Assignment"
-                      className="text-slate-300 hover:text-red-600 p-1 rounded-lg transition"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                  <p className="text-xs text-slate-400">
-                    Updated {new Date(doc.updated_at).toLocaleDateString()}
-                  </p>
-                </div>
-
-                <div className="mt-6 pt-4 border-t border-slate-100 flex justify-between items-center text-xs">
-                  <span className="font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
-                    {doc.folder_id
-                      ? folders.find((f) => f.id === doc.folder_id)?.name || 'Folder'
-                      : 'Unorganized'}
-                  </span>
-                  <span className="font-semibold text-blue-600 group-hover:translate-x-1 transition-transform inline-block">
-                    Open →
-                  </span>
-                </div>
-              </div>
-            ))}
+        {doc.status === 'graded' && doc.grade && (
+          <div className="pt-2">
+            <span className="inline-block px-2.5 py-0.5 bg-purple-100 text-purple-900 text-[10px] font-bold rounded-md">
+              Grade: {doc.grade}
+            </span>
           </div>
         )}
+      </div>
+    );
+  };
 
-        {/* New Folder Modal */}
-        {showFolderModal && (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-xl border border-slate-100">
-              <h3 className="text-lg font-bold text-slate-900">Create Folder</h3>
-              <form onSubmit={handleCreateFolder} className="space-y-4">
-                <input
-                  type="text"
-                  placeholder="e.g. English Literature"
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl p-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  autoFocus
-                />
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowFolderModal(false)}
-                    className="px-4 py-2 bg-slate-100 text-slate-700 text-xs font-medium rounded-xl hover:bg-slate-200"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={creatingFolder}
-                    className="px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-xl hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {creatingFolder ? 'Saving...' : 'Create Folder'}
-                  </button>
+  return (
+    <div className="min-h-screen bg-slate-100/80 p-6 md:p-10">
+      <div className="max-w-7xl mx-auto space-y-8">
+        
+        {/* Header Bar */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Student Portal</h1>
+            <p className="text-xs text-slate-500 mt-0.5">Welcome back, {studentName}</p>
+          </div>
+          <button
+            onClick={handleCreateNew}
+            className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-2xs transition"
+          >
+            + Create New Assignment
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="p-12 text-center text-slate-400 font-medium">Loading documents...</div>
+        ) : (
+          /* 3 Columns: Unsubmitted, Submitted, Graded */
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+            
+            {/* Column 1: Unsubmitted */}
+            <div className="space-y-4">
+              <div className="bg-slate-200/80 border border-slate-300 px-4 py-3 rounded-xl">
+                <h2 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                  📝 Unsubmitted Drafts ({unsubmittedList.length})
+                </h2>
+              </div>
+              {unsubmittedList.length === 0 ? (
+                <div className="bg-white/60 border border-dashed border-slate-300 rounded-2xl p-6 text-center text-slate-400 text-xs">
+                  No draft documents.
                 </div>
-              </form>
+              ) : (
+                <div className="space-y-3">{unsubmittedList.map(renderCard)}</div>
+              )}
             </div>
+
+            {/* Column 2: Submitted */}
+            <div className="space-y-4">
+              <div className="bg-amber-100/80 border border-amber-200 px-4 py-3 rounded-xl">
+                <h2 className="text-xs font-black text-amber-900 uppercase tracking-wider">
+                  🚀 Submitted ({submittedList.length})
+                </h2>
+              </div>
+              {submittedList.length === 0 ? (
+                <div className="bg-white/60 border border-dashed border-slate-300 rounded-2xl p-6 text-center text-slate-400 text-xs">
+                  No pending submissions.
+                </div>
+              ) : (
+                <div className="space-y-3">{submittedList.map(renderCard)}</div>
+              )}
+            </div>
+
+            {/* Column 3: Graded */}
+            <div className="space-y-4">
+              <div className="bg-purple-100/80 border border-purple-200 px-4 py-3 rounded-xl">
+                <h2 className="text-xs font-black text-purple-900 uppercase tracking-wider">
+                  ✓ Graded ({gradedList.length})
+                </h2>
+              </div>
+              {gradedList.length === 0 ? (
+                <div className="bg-white/60 border border-dashed border-slate-300 rounded-2xl p-6 text-center text-slate-400 text-xs">
+                  No graded work returned yet.
+                </div>
+              ) : (
+                <div className="space-y-3">{gradedList.map(renderCard)}</div>
+              )}
+            </div>
+
           </div>
         )}
       </div>
