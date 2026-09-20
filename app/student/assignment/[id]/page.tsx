@@ -5,7 +5,6 @@ import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 
-// Load Editor strictly on client side
 const Editor = dynamic(() => import('@/components/Editor'), {
   ssr: false,
   loading: () => (
@@ -15,11 +14,11 @@ const Editor = dynamic(() => import('@/components/Editor'), {
   ),
 });
 
-interface FloatingComment {
+interface InlineComment {
   id: string;
-  x: number;
-  y: number;
-  text: string;
+  selectedText: string;
+  commentText: string;
+  createdAt: string;
 }
 
 function StudentAssignmentContent() {
@@ -38,8 +37,7 @@ function StudentAssignmentContent() {
   const [status, setStatus] = useState<'draft' | 'submitted' | 'graded'>('draft');
   const [grade, setGrade] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [floatingComments, setFloatingComments] = useState<FloatingComment[]>([]);
+  const [inlineComments, setInlineComments] = useState<InlineComment[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -63,9 +61,8 @@ function StudentAssignmentContent() {
         setStatus(data.status || 'draft');
         setGrade(data.grade || null);
         setFeedback(data.feedback || null);
-        setPdfUrl(data.pdf_url || null);
-        if (Array.isArray(data.floating_comments)) {
-          setFloatingComments(data.floating_comments);
+        if (Array.isArray(data.inline_comments)) {
+          setInlineComments(data.inline_comments);
         }
       }
       setLoading(false);
@@ -74,7 +71,6 @@ function StudentAssignmentContent() {
     fetchAssignment();
   }, [assignmentId]);
 
-  // Save Draft to Database
   const handleSave = async () => {
     if (!assignmentId) return;
     setSaving(true);
@@ -97,12 +93,11 @@ function StudentAssignmentContent() {
     setSaving(false);
   };
 
-  // Submit Assignment & Generate Initial PDF
   const handleSubmitAssignment = async () => {
     if (!assignmentId) return;
 
     const confirmSubmit = window.confirm(
-      'Are you sure you want to submit? This will convert your document into a locked PDF for teacher review.'
+      'Are you sure you want to submit? This assignment will be locked for teacher evaluation.'
     );
     if (!confirmSubmit) return;
 
@@ -117,33 +112,6 @@ function StudentAssignmentContent() {
         user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Student';
       const studentEmail = user?.email || 'student@school.edu';
 
-      // @ts-ignore
-      const html2pdf = (await import('html2pdf.js')).default;
-      const element = document.getElementById('student-canvas-paper');
-
-      const opt = {
-        margin: 0.5,
-        filename: `${title || 'Assignment'}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2 },
-        jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
-      };
-
-      const pdfBlob = await html2pdf().set(opt).from(element).output('blob');
-      const filePath = `submissions/${assignmentId}_${Date.now()}.pdf`;
-
-      const { error: storageError } = await supabase.storage
-        .from('assignment_pdfs')
-        .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true });
-
-      let generatedPublicUrl = '';
-      if (!storageError) {
-        const { data: urlData } = supabase.storage
-          .from('assignment_pdfs')
-          .getPublicUrl(filePath);
-        generatedPublicUrl = urlData.publicUrl;
-      }
-
       const { error: dbError } = await supabase
         .from('assignments')
         .update({
@@ -151,7 +119,6 @@ function StudentAssignmentContent() {
           content,
           student_name: studentName,
           user_email: studentEmail,
-          pdf_url: generatedPublicUrl,
           status: 'submitted',
           submitted_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -159,22 +126,18 @@ function StudentAssignmentContent() {
         .eq('id', assignmentId);
 
       if (dbError) {
-        alert(`Submission DB error: ${dbError.message}`);
+        alert(`Submission error: ${dbError.message}`);
       } else {
         setStatus('submitted');
-        setPdfUrl(generatedPublicUrl);
-        alert('Assignment successfully submitted as PDF to your teacher!');
+        alert('Assignment successfully submitted to your teacher!');
       }
     } catch (err: any) {
       console.error('Submission error:', err);
-      alert('Document submitted to teacher queue.');
-      setStatus('submitted');
     }
 
     setSubmitting(false);
   };
 
-  // USB File Save
   const handleSaveToUSB = async () => {
     const filename = `${title || 'Untitled Document'}.html`;
     if ('showSaveFilePicker' in window) {
@@ -203,7 +166,6 @@ function StudentAssignmentContent() {
     document.body.removeChild(link);
   };
 
-  // USB File Open
   const handleOpenFromUSB = async (e?: React.ChangeEvent<HTMLInputElement>) => {
     const file = e?.target?.files?.[0];
     if (!file) return;
@@ -229,29 +191,11 @@ function StudentAssignmentContent() {
   const isReadOnly = status === 'submitted' || status === 'graded';
 
   return (
-    <div className="min-h-screen bg-slate-50/50 print:bg-white print:min-h-0 py-8 px-4 sm:px-6 lg:px-8">
-      <style jsx global>{`
-        @media print {
-          header,
-          .no-print,
-          .print\\:hidden {
-            display: none !important;
-          }
-          body {
-            background: white !important;
-            padding: 0 !important;
-          }
-          main {
-            border: none !important;
-            box-shadow: none !important;
-          }
-        }
-      `}</style>
-
-      <div className="max-w-5xl mx-auto space-y-6 print:p-0">
+    <div className="min-h-screen bg-slate-50/50 py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* Top Header Bar */}
-        <header className="no-print flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/80 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+        {/* Header Action Bar */}
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/80 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
           <button
             onClick={() => router.push('/student/dashboard')}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold rounded-xl transition-all"
@@ -273,17 +217,6 @@ function StudentAssignmentContent() {
             >
               💾 USB Save
             </button>
-
-            {pdfUrl && (
-              <a
-                href={pdfUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl shadow-xs transition"
-              >
-                📥 Download PDF
-              </a>
-            )}
 
             <button
               onClick={() => window.print()}
@@ -316,17 +249,17 @@ function StudentAssignmentContent() {
                 : status === 'graded'
                 ? '✓ Graded'
                 : submitting
-                ? 'Generating PDF...'
+                ? 'Submitting...'
                 : '🚀 Submit Assignment'}
             </button>
           </div>
         </header>
 
-        {/* Teacher Grade & Feedback Banner */}
+        {/* Teacher Grade & Review Banner */}
         {(grade || feedback) && (
           <div className="bg-purple-50 border border-purple-200 rounded-2xl p-6 space-y-2">
             <div className="flex justify-between items-center">
-              <h3 className="text-sm font-bold text-purple-900">Teacher Evaluation & Feedback</h3>
+              <h3 className="text-sm font-bold text-purple-900">Teacher Evaluation & Review</h3>
               {grade && (
                 <span className="px-3 py-1 bg-purple-600 text-white font-bold text-xs rounded-xl">
                   Grade: {grade}
@@ -337,49 +270,66 @@ function StudentAssignmentContent() {
           </div>
         )}
 
-        {/* Document Surface */}
-        <main
-          id="student-canvas-paper"
-          className="relative bg-white print:bg-white rounded-2xl border border-slate-200/80 print:border-none p-6 sm:p-10 shadow-xs space-y-6 min-h-[650px]"
-        >
-          {isReadOnly && (
-            <div className="no-print bg-amber-50 border border-amber-200/80 text-amber-900 rounded-xl p-3.5 text-xs font-medium flex items-center justify-between">
-              <span>🔒 This assignment is submitted and locked against further edits.</span>
-              <span className="font-bold uppercase tracking-wider text-[10px] bg-amber-200/60 px-2.5 py-0.5 rounded-md">
-                Read Only
-              </span>
-            </div>
-          )}
-
-          <input
-            type="text"
-            disabled={isReadOnly}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 border-b border-slate-200/80 pb-3 focus:outline-none disabled:bg-transparent disabled:opacity-80"
-            placeholder="Document Title"
-          />
-
-          <Editor
-            content={content}
-            editable={!isReadOnly}
-            onChange={(html) => setContent(html)}
-          />
-
-          {/* Positioned Floating Comments */}
-          {floatingComments.map((comment) => (
-            <div
-              key={comment.id}
-              style={{ left: `${comment.x}%`, top: `${comment.y}px` }}
-              className="absolute w-64 bg-amber-50/95 backdrop-blur-xs border border-amber-300 rounded-xl p-3 shadow-md z-20 text-xs text-amber-950 font-medium space-y-1"
-            >
-              <div className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">
-                📌 Teacher Note
+        {/* Document Surface + Margin Comments Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          
+          <main className="lg:col-span-8 bg-white rounded-2xl border border-slate-200/80 p-6 sm:p-10 shadow-xs space-y-6 min-h-[650px]">
+            {isReadOnly && (
+              <div className="bg-amber-50 border border-amber-200/80 text-amber-900 rounded-xl p-3.5 text-xs font-medium flex items-center justify-between">
+                <span>🔒 This assignment is submitted and locked against further edits.</span>
+                <span className="font-bold uppercase tracking-wider text-[10px] bg-amber-200/60 px-2.5 py-0.5 rounded-md">
+                  Read Only
+                </span>
               </div>
-              <p className="leading-relaxed whitespace-pre-wrap">{comment.text}</p>
-            </div>
-          ))}
-        </main>
+            )}
+
+            <input
+              type="text"
+              disabled={isReadOnly}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 border-b border-slate-200/80 pb-3 focus:outline-none disabled:bg-transparent disabled:opacity-80"
+              placeholder="Document Title"
+            />
+
+            <Editor
+              content={content}
+              editable={!isReadOnly}
+              onChange={(html) => setContent(html)}
+            />
+          </main>
+
+          {/* Right Column: Teacher Margin Comments View */}
+          <div className="lg:col-span-4 space-y-4">
+            <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+              💬 Teacher Margin Notes ({inlineComments.length})
+            </h4>
+
+            {inlineComments.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center text-xs text-slate-400">
+                No inline margin comments attached.
+              </div>
+            ) : (
+              inlineComments.map((comment) => (
+                <div
+                  key={comment.id}
+                  className="bg-amber-50/90 border border-amber-200/80 rounded-2xl p-4 shadow-2xs space-y-2"
+                >
+                  <div className="text-[10px] text-amber-800 font-bold uppercase tracking-wider">
+                    📌 Teacher Note • {comment.createdAt}
+                  </div>
+                  <div className="bg-white/80 border border-amber-200/60 rounded-lg p-2 text-xs italic font-serif text-slate-700">
+                    "{comment.selectedText}"
+                  </div>
+                  <p className="text-xs text-amber-950 font-medium leading-relaxed">
+                    {comment.commentText}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+
+        </div>
       </div>
     </div>
   );
