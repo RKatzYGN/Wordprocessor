@@ -147,8 +147,8 @@ function TeacherWorkspaceContent() {
   return (
     <div className="min-h-screen bg-slate-100/90 pb-20">
       
-      {/* Top Fixed Header */}
-      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-6 py-3.5 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-xs">
+      {/* Top Header */}
+      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-6 py-3.5 flex justify-between items-center shadow-xs">
         <div className="flex items-center gap-4">
           <button
             onClick={() => router.push('/teacher/dashboard')}
@@ -157,7 +157,7 @@ function TeacherWorkspaceContent() {
             ← Back to Queue
           </button>
           <div>
-            <h1 className="text-base font-bold text-slate-900 truncate max-w-xs sm:max-w-md">{title}</h1>
+            <h1 className="text-base font-bold text-slate-900 truncate">{title}</h1>
             <p className="text-[11px] text-slate-500">
               Student: <span className="font-semibold text-slate-800">{studentName}</span> ({studentEmail})
             </p>
@@ -182,13 +182,13 @@ function TeacherWorkspaceContent() {
         </div>
       </header>
 
-      {/* Main Layout Container */}
-      <div className="max-w-[1180px] mx-auto mt-8 px-4 flex flex-col lg:flex-row items-start justify-center gap-8">
+      {/* Main Grid View */}
+      <div className="max-w-[1280px] mx-auto mt-8 px-4 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8 items-start">
         
-        {/* Document Paper Container */}
-        <div className="w-full max-w-[720px] shrink-0 space-y-6">
+        {/* Document Column */}
+        <div className="space-y-6 min-w-0">
           
-          {/* Red Evaluation Header */}
+          {/* Evaluation Banner */}
           <div className="bg-red-50/90 border-2 border-red-200 rounded-2xl p-6 shadow-xs space-y-4">
             <div className="flex items-center justify-between border-b border-red-200 pb-3">
               <h3 className="text-xs font-bold text-red-900 uppercase tracking-wider">
@@ -228,10 +228,10 @@ function TeacherWorkspaceContent() {
 
           <hr className="border-t-2 border-dashed border-red-200/80 my-4" />
 
-          {/* Centered Document Paper Sheet */}
+          {/* Paper Canvas */}
           <div
             onMouseUp={handleTextSelection}
-            className="bg-white border border-slate-200/90 rounded-2xl shadow-sm p-8 sm:p-14 min-h-[820px] space-y-6"
+            className="bg-white border border-slate-200/90 rounded-2xl shadow-sm p-8 sm:p-12 min-h-[800px] space-y-6"
           >
             <div className="border-b border-slate-100 pb-4">
               <h1 className="text-3xl font-bold text-slate-900">{title}</h1>
@@ -247,8 +247,8 @@ function TeacherWorkspaceContent() {
           </div>
         </div>
 
-        {/* Right Side Margin Notes Sidebar */}
-        <aside className="w-full lg:w-[320px] shrink-0 sticky top-20 space-y-4">
+        {/* Locked Side Margin Panel */}
+        <aside className="w-full lg:w-[320px] sticky top-20 space-y-4">
           
           <div className="bg-white p-5 rounded-2xl border border-red-200 shadow-xs space-y-3">
             <h4 className="text-xs font-bold text-red-900 uppercase tracking-wider flex items-center gap-2">
