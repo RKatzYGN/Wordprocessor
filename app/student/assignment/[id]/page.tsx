@@ -71,6 +71,25 @@ function StudentAssignmentContent() {
     fetchAssignment();
   }, [assignmentId]);
 
+  // Apply red highlight and wavy underline to noted lines
+  const getRenderedContent = () => {
+    if (!content) return '';
+    let highlightedHTML = content;
+
+    inlineComments.forEach((comment) => {
+      if (comment.selectedText && comment.selectedText.trim().length > 0) {
+        const escapedSelection = comment.selectedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(${escapedSelection})`, 'gi');
+        highlightedHTML = highlightedHTML.replace(
+          regex,
+          `<mark class="bg-red-100 text-red-950 underline decoration-red-400 decoration-wavy underline-offset-4 px-1 rounded-sm">$1</mark>`
+        );
+      }
+    });
+
+    return highlightedHTML;
+  };
+
   const handleSave = async () => {
     if (!assignmentId) return;
     setSaving(true);
@@ -194,7 +213,7 @@ function StudentAssignmentContent() {
     <div className="min-h-screen bg-slate-50/50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* Header Action Bar */}
+        {/* Action Header */}
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/80 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
           <button
             onClick={() => router.push('/student/dashboard')}
@@ -255,22 +274,25 @@ function StudentAssignmentContent() {
           </div>
         </header>
 
-        {/* Teacher Grade & Review Banner */}
+        {/* Red Teacher Grade & Summary Review Header */}
         {(grade || feedback) && (
-          <div className="bg-purple-50 border border-purple-200 rounded-2xl p-6 space-y-2">
-            <div className="flex justify-between items-center">
-              <h3 className="text-sm font-bold text-purple-900">Teacher Evaluation & Review</h3>
+          <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-6 shadow-xs space-y-2">
+            <div className="flex justify-between items-center border-b border-red-200/60 pb-3">
+              <h3 className="text-sm font-bold text-red-900">📝 Teacher Grade & Overall Review</h3>
               {grade && (
-                <span className="px-3 py-1 bg-purple-600 text-white font-bold text-xs rounded-xl">
+                <span className="px-3.5 py-1 bg-red-600 text-white font-extrabold text-xs rounded-xl shadow-xs">
                   Grade: {grade}
                 </span>
               )}
             </div>
-            {feedback && <p className="text-sm text-purple-800 leading-relaxed">{feedback}</p>}
+            {feedback && <p className="text-sm text-red-950 font-medium leading-relaxed">{feedback}</p>}
           </div>
         )}
 
-        {/* Document Surface + Margin Comments Layout */}
+        {/* Divider Line Before Essay */}
+        {(grade || feedback) && <hr className="border-t-2 border-dashed border-red-200 my-4" />}
+
+        {/* 2-Column Document & Margin View */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
           <main className="lg:col-span-8 bg-white rounded-2xl border border-slate-200/80 p-6 sm:p-10 shadow-xs space-y-6 min-h-[650px]">
@@ -292,36 +314,43 @@ function StudentAssignmentContent() {
               placeholder="Document Title"
             />
 
-            <Editor
-              content={content}
-              editable={!isReadOnly}
-              onChange={(html) => setContent(html)}
-            />
+            {status === 'graded' ? (
+              <div
+                className="prose prose-slate max-w-none text-slate-800 leading-relaxed text-base"
+                dangerouslySetInnerHTML={{ __html: getRenderedContent() }}
+              />
+            ) : (
+              <Editor
+                content={content}
+                editable={!isReadOnly}
+                onChange={(html) => setContent(html)}
+              />
+            )}
           </main>
 
-          {/* Right Column: Teacher Margin Comments View */}
+          {/* Right Side Margin Panel */}
           <div className="lg:col-span-4 space-y-4">
-            <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-              💬 Teacher Margin Notes ({inlineComments.length})
+            <h4 className="text-xs font-bold text-red-900 uppercase tracking-wider flex items-center gap-1.5">
+              📌 Red Side Margin Notes ({inlineComments.length})
             </h4>
 
             {inlineComments.length === 0 ? (
               <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center text-xs text-slate-400">
-                No inline margin comments attached.
+                No side margin notes attached.
               </div>
             ) : (
               inlineComments.map((comment) => (
                 <div
                   key={comment.id}
-                  className="bg-amber-50/90 border border-amber-200/80 rounded-2xl p-4 shadow-2xs space-y-2"
+                  className="bg-red-50 border border-red-200/80 rounded-2xl p-4 shadow-2xs space-y-2"
                 >
-                  <div className="text-[10px] text-amber-800 font-bold uppercase tracking-wider">
+                  <div className="text-[10px] text-red-800 font-extrabold uppercase tracking-wider">
                     📌 Teacher Note • {comment.createdAt}
                   </div>
-                  <div className="bg-white/80 border border-amber-200/60 rounded-lg p-2 text-xs italic font-serif text-slate-700">
+                  <div className="bg-white/90 border border-red-200 rounded-lg p-2 text-xs italic font-serif text-red-950 font-medium">
                     "{comment.selectedText}"
                   </div>
-                  <p className="text-xs text-amber-950 font-medium leading-relaxed">
+                  <p className="text-xs text-red-950 font-semibold leading-relaxed">
                     {comment.commentText}
                   </p>
                 </div>
