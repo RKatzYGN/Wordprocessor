@@ -71,7 +71,6 @@ function StudentAssignmentContent() {
     fetchAssignment();
   }, [assignmentId]);
 
-  // Apply red highlight and wavy underline to noted lines
   const getRenderedContent = () => {
     if (!content) return '';
     let highlightedHTML = content;
@@ -210,10 +209,10 @@ function StudentAssignmentContent() {
   const isReadOnly = status === 'submitted' || status === 'graded';
 
   return (
-    <div className="min-h-screen bg-slate-50/50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-slate-100/90 py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-[1180px] mx-auto space-y-6">
         
-        {/* Action Header */}
+        {/* Top Header Bar */}
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/80 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
           <button
             onClick={() => router.push('/student/dashboard')}
@@ -274,64 +273,67 @@ function StudentAssignmentContent() {
           </div>
         </header>
 
-        {/* Red Teacher Grade & Summary Review Header */}
-        {(grade || feedback) && (
-          <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-6 shadow-xs space-y-2">
-            <div className="flex justify-between items-center border-b border-red-200/60 pb-3">
-              <h3 className="text-sm font-bold text-red-900">📝 Teacher Grade & Overall Review</h3>
-              {grade && (
-                <span className="px-3.5 py-1 bg-red-600 text-white font-extrabold text-xs rounded-xl shadow-xs">
-                  Grade: {grade}
-                </span>
-              )}
-            </div>
-            {feedback && <p className="text-sm text-red-950 font-medium leading-relaxed">{feedback}</p>}
-          </div>
-        )}
-
-        {/* Divider Line Before Essay */}
-        {(grade || feedback) && <hr className="border-t-2 border-dashed border-red-200 my-4" />}
-
-        {/* 2-Column Document & Margin View */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Main Side-by-Side Flex Layout */}
+        <div className="flex flex-col lg:flex-row items-start justify-center gap-8">
           
-          <main className="lg:col-span-8 bg-white rounded-2xl border border-slate-200/80 p-6 sm:p-10 shadow-xs space-y-6 min-h-[650px]">
-            {isReadOnly && (
-              <div className="bg-amber-50 border border-amber-200/80 text-amber-900 rounded-xl p-3.5 text-xs font-medium flex items-center justify-between">
-                <span>🔒 This assignment is submitted and locked against further edits.</span>
-                <span className="font-bold uppercase tracking-wider text-[10px] bg-amber-200/60 px-2.5 py-0.5 rounded-md">
-                  Read Only
-                </span>
+          <main className="w-full max-w-[720px] shrink-0 space-y-6">
+            
+            {/* Red Evaluation Banner */}
+            {(grade || feedback) && (
+              <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-6 shadow-xs space-y-2">
+                <div className="flex justify-between items-center border-b border-red-200/60 pb-3">
+                  <h3 className="text-sm font-bold text-red-900">📝 Teacher Grade & Overall Review</h3>
+                  {grade && (
+                    <span className="px-3.5 py-1 bg-red-600 text-white font-extrabold text-xs rounded-xl shadow-xs">
+                      Grade: {grade}
+                    </span>
+                  )}
+                </div>
+                {feedback && <p className="text-sm text-red-950 font-medium leading-relaxed">{feedback}</p>}
               </div>
             )}
 
-            <input
-              type="text"
-              disabled={isReadOnly}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 border-b border-slate-200/80 pb-3 focus:outline-none disabled:bg-transparent disabled:opacity-80"
-              placeholder="Document Title"
-            />
+            {(grade || feedback) && <hr className="border-t-2 border-dashed border-red-200/80 my-4" />}
 
-            {status === 'graded' ? (
-              <div
-                className="prose prose-slate max-w-none text-slate-800 leading-relaxed text-base"
-                dangerouslySetInnerHTML={{ __html: getRenderedContent() }}
+            {/* Centered Document Paper */}
+            <div className="bg-white rounded-2xl border border-slate-200/90 p-8 sm:p-14 shadow-xs space-y-6 min-h-[820px]">
+              {isReadOnly && (
+                <div className="bg-amber-50 border border-amber-200/80 text-amber-900 rounded-xl p-3.5 text-xs font-medium flex items-center justify-between">
+                  <span>🔒 This assignment is submitted and locked against further edits.</span>
+                  <span className="font-bold uppercase tracking-wider text-[10px] bg-amber-200/60 px-2.5 py-0.5 rounded-md">
+                    Read Only
+                  </span>
+                </div>
+              )}
+
+              <input
+                type="text"
+                disabled={isReadOnly}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 border-b border-slate-200/80 pb-3 focus:outline-none disabled:bg-transparent disabled:opacity-80"
+                placeholder="Document Title"
               />
-            ) : (
-              <Editor
-                content={content}
-                editable={!isReadOnly}
-                onChange={(html) => setContent(html)}
-              />
-            )}
+
+              {status === 'graded' ? (
+                <div
+                  className="prose prose-slate max-w-none text-slate-800 leading-relaxed text-base"
+                  dangerouslySetInnerHTML={{ __html: getRenderedContent() }}
+                />
+              ) : (
+                <Editor
+                  content={content}
+                  editable={!isReadOnly}
+                  onChange={(html) => setContent(html)}
+                />
+              )}
+            </div>
           </main>
 
-          {/* Right Side Margin Panel */}
-          <div className="lg:col-span-4 space-y-4">
+          {/* Right Side Margin Notes */}
+          <aside className="w-full lg:w-[320px] shrink-0 sticky top-20 space-y-4">
             <h4 className="text-xs font-bold text-red-900 uppercase tracking-wider flex items-center gap-1.5">
-              📌 Red Side Margin Notes ({inlineComments.length})
+              📌 Side Margin Notes ({inlineComments.length})
             </h4>
 
             {inlineComments.length === 0 ? (
@@ -356,7 +358,7 @@ function StudentAssignmentContent() {
                 </div>
               ))
             )}
-          </div>
+          </aside>
 
         </div>
       </div>
