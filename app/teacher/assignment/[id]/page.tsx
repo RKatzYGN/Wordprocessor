@@ -35,7 +35,7 @@ function TeacherPDFCanvasContent() {
   const [textBoxes, setTextBoxes] = useState<TextBoxAnnotation[]>([]);
 
   const [loading, setLoading] = useState(true);
-  const [pdfRendering, setPdfRendering] = useState(false);
+  const [pdfLoaded, setPdfLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
 
@@ -69,42 +69,50 @@ function TeacherPDFCanvasContent() {
     fetchAssignment();
   }, [assignmentId]);
 
-  // Render PDF using PDF.js onto the Base HTML5 Canvas
+  // Load PDF.js dynamically via script tag at runtime
   useEffect(() => {
-    if (!pdfUrl || !pdfCanvasRef.current || !drawCanvasRef.current) return;
+    if (!pdfUrl) return;
 
-    async function renderPDFPage() {
-      setPdfRendering(true);
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js';
+    script.onload = async () => {
       try {
-        // Dynamic import strictly at runtime inside browser
-        const pdfjsLib = await import('pdfjs-dist');
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+        // @ts-ignore
+        const pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
         const loadingTask = pdfjsLib.getDocument(pdfUrl);
         const pdf = await loadingTask.promise;
         const page = await pdf.getPage(1);
 
         const viewport = page.getViewport({ scale: 1.5 });
-        const pCanvas = pdfCanvasRef.current!;
-        const dCanvas = drawCanvasRef.current!;
+        const pCanvas = pdfCanvasRef.current;
+        const dCanvas = drawCanvasRef.current;
 
-        pCanvas.width = viewport.width;
-        pCanvas.height = viewport.height;
-        dCanvas.width = viewport.width;
-        dCanvas.height = viewport.height;
+        if (pCanvas && dCanvas) {
+          pCanvas.width = viewport.width;
+          pCanvas.height = viewport.height;
+          dCanvas.width = viewport.width;
+          dCanvas.height = viewport.height;
 
-        const pContext = pCanvas.getContext('2d')!;
-        await page.render({ canvasContext: pContext, viewport }).promise;
+          const pContext = pCanvas.getContext('2d')!;
+          await page.render({ canvasContext: pContext, viewport }).promise;
+          setPdfLoaded(true);
+        }
       } catch (err) {
-        console.error('Error rendering PDF canvas:', err);
+        console.error('PDF Render Error:', err);
       }
-      setPdfRendering(false);
-    }
+    };
 
-    renderPDFPage();
+    document.body.appendChild(script);
+
+    return () => {
+      document.body.removeChild(script);
+    };
   }, [pdfUrl]);
 
-  // Handle Freestyle Pen Drawing
+  // Freestyle Pen Drawing
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (tool !== 'pen') return;
     setIsDrawing(true);
@@ -169,7 +177,7 @@ function TeacherPDFCanvasContent() {
     setTextBoxes([]);
   };
 
-  // Flatten PDF Canvas, Drawing Layer, and Floating Text Boxes into returned PDF
+  // Merge Canvas, Ink, and Text Boxes into returned PDF
   const handleReturnToStudent = async () => {
     if (!assignmentId) return;
     setSaving(true);
@@ -179,19 +187,18 @@ function TeacherPDFCanvasContent() {
       const dCanvas = drawCanvasRef.current;
       if (!pCanvas || !dCanvas) return;
 
-      // 1. Create temporary offscreen export canvas
       const exportCanvas = document.createElement('canvas');
       exportCanvas.width = pCanvas.width;
       exportCanvas.height = pCanvas.height;
       const ctx = exportCanvas.getContext('2d')!;
 
-      // 2. Draw PDF page base
+      // Draw PDF base
       ctx.drawImage(pCanvas, 0, 0);
 
-      // 3. Draw freestyle red ink
+      // Draw red ink
       ctx.drawImage(dCanvas, 0, 0);
 
-      // 4. Draw floating text boxes onto export canvas
+      // Draw floating text boxes
       ctx.font = 'bold 13px sans-serif';
       textBoxes.forEach((box) => {
         ctx.fillStyle = '#fee2e2';
@@ -203,7 +210,6 @@ function TeacherPDFCanvasContent() {
         ctx.fillText(box.text, box.x + 8, box.y + 22);
       });
 
-      // 5. Convert flattened canvas into PDF Blob via html2pdf.js
       // @ts-ignore
       const html2pdf = (await import('html2pdf.js')).default;
       const imgData = exportCanvas.toDataURL('image/jpeg', 0.98);
@@ -222,7 +228,6 @@ function TeacherPDFCanvasContent() {
       const pdfBlob = await html2pdf().set(opt).from(wrapper).output('blob');
       const filePath = `graded/${assignmentId}_marked_${Date.now()}.pdf`;
 
-      // 6. Upload marked-up PDF to Supabase Storage
       const { error: storageError } = await supabase.storage
         .from('assignment_pdfs')
         .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true });
@@ -235,7 +240,6 @@ function TeacherPDFCanvasContent() {
         gradedPdfUrl = urlData.publicUrl;
       }
 
-      // 7. Update database record
       const { error: dbError } = await supabase
         .from('assignments')
         .update({
@@ -255,7 +259,7 @@ function TeacherPDFCanvasContent() {
       }
     } catch (err: any) {
       console.error('Error flattening PDF:', err);
-      alert('Returned assignment to student queue.');
+      alert('Returned assignment.');
       router.push('/teacher/dashboard');
     }
 
@@ -273,7 +277,6 @@ function TeacherPDFCanvasContent() {
   return (
     <div className="min-h-screen bg-slate-200/80 pb-20">
       
-      {/* Top Controls Header */}
       <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-6 py-3 flex flex-wrap justify-between items-center gap-4 shadow-2xs">
         <div className="flex items-center gap-4">
           <button
@@ -290,7 +293,6 @@ function TeacherPDFCanvasContent() {
           </div>
         </div>
 
-        {/* Custom PDF Markup Tools */}
         <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
           <button
             onClick={() => setTool('pen')}
@@ -320,17 +322,15 @@ function TeacherPDFCanvasContent() {
 
         <button
           onClick={handleReturnToStudent}
-          disabled={saving || pdfRendering}
+          disabled={saving}
           className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-2xs transition disabled:opacity-50"
         >
           {saving ? 'Flattening PDF...' : '✉️ Return Marked-Up PDF'}
         </button>
       </header>
 
-      {/* Main Workspace */}
       <div className="max-w-6xl mx-auto mt-6 px-4 space-y-6">
         
-        {/* Grade Card */}
         <div className="bg-white p-5 rounded-2xl border border-red-200 shadow-2xs space-y-3">
           <h3 className="text-xs font-bold text-red-900 uppercase tracking-wider">
             📝 Grade & Summary Review
@@ -359,17 +359,14 @@ function TeacherPDFCanvasContent() {
           </div>
         </div>
 
-        {/* PDF Page Canvas Sheet with Overlay Ink Layer */}
         <div className="flex justify-center">
           <div
             ref={containerRef}
             onClick={handleCanvasClick}
             className="relative bg-white shadow-xl rounded-xl overflow-hidden border border-slate-300 select-none min-h-[700px]"
           >
-            {/* Layer 1: Base PDF Rendered via PDF.js */}
             <canvas ref={pdfCanvasRef} className="block" />
 
-            {/* Layer 2: Interactive Red Pen Drawing Canvas */}
             <canvas
               ref={drawCanvasRef}
               onMouseDown={startDrawing}
@@ -381,7 +378,6 @@ function TeacherPDFCanvasContent() {
               }`}
             />
 
-            {/* Layer 3: Floating Text Box Overlay */}
             {textBoxes.map((box) => (
               <div
                 key={box.id}
