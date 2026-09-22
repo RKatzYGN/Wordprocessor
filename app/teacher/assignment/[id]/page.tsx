@@ -11,12 +11,6 @@ interface TextBoxAnnotation {
   text: string;
 }
 
-interface Stroke {
-  points: { x: number; y: number }[];
-  color: string;
-  width: number;
-}
-
 function TeacherPDFCanvasContent() {
   const params = useParams();
   const router = useRouter();
@@ -39,17 +33,16 @@ function TeacherPDFCanvasContent() {
   const [tool, setTool] = useState<'pen' | 'text'>('pen');
   const [penColor] = useState('#dc2626'); // Red
   const [penWidth] = useState(3);
-
-  // Markups state
-  const [strokes, setStrokes] = useState<Stroke[]>([]);
-  const [currentStroke, setCurrentStroke] = useState<{ x: number; y: number }[]>([]);
   const [textBoxes, setTextBoxes] = useState<TextBoxAnnotation[]>([]);
 
   const [loading, setLoading] = useState(true);
+  const [pdfRendering, setPdfRendering] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
+  const drawCanvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     if (!assignmentId) return;
@@ -77,44 +70,111 @@ function TeacherPDFCanvasContent() {
     fetchAssignment();
   }, [assignmentId]);
 
-  // Handle Freestyle SVG Pen Drawing
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (tool !== 'pen' || !containerRef.current) return;
+  // Load PDF.js dynamically and render PDF page directly to base canvas
+  useEffect(() => {
+    if (!pdfUrl) return;
+
+    let isMounted = true;
+    setPdfRendering(true);
+
+    const loadAndRenderPDF = async () => {
+      // Load PDF.js CDN script if not present
+      // @ts-ignore
+      if (!window.pdfjsLib) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js';
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('Failed to load PDF.js script'));
+          document.body.appendChild(script);
+        });
+      }
+
+      // @ts-ignore
+      const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
+      if (!pdfjsLib) return;
+
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+      try {
+        const loadingTask = pdfjsLib.getDocument(pdfUrl);
+        const pdf = await loadingTask.promise;
+        const page = await pdf.getPage(1);
+
+        // Render PDF at high DPI resolution
+        const viewport = page.getViewport({ scale: 1.8 });
+        const pCanvas = pdfCanvasRef.current;
+        const dCanvas = drawCanvasRef.current;
+
+        if (pCanvas && dCanvas && isMounted) {
+          pCanvas.width = viewport.width;
+          pCanvas.height = viewport.height;
+          dCanvas.width = viewport.width;
+          dCanvas.height = viewport.height;
+
+          const pContext = pCanvas.getContext('2d')!;
+          await page.render({ canvasContext: pContext, viewport }).promise;
+        }
+      } catch (err) {
+        console.error('PDF Render Error:', err);
+      }
+
+      if (isMounted) setPdfRendering(false);
+    };
+
+    loadAndRenderPDF();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [pdfUrl]);
+
+  // Freestyle Pen Drawing Handlers
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (tool !== 'pen') return;
     setIsDrawing(true);
+    const canvas = drawCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    // Adjust scale factor between canvas internal size and display size
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
 
-    setCurrentStroke([{ x, y }]);
+    ctx.beginPath();
+    ctx.moveTo((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDrawing || tool !== 'pen' || !containerRef.current) return;
+  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing || tool !== 'pen') return;
+    const canvas = drawCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
 
-    setCurrentStroke((prev) => [...prev, { x, y }]);
+    ctx.strokeStyle = penColor;
+    ctx.lineWidth = penWidth * scaleX;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    ctx.lineTo((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
+    ctx.stroke();
   };
 
-  const handleMouseUp = () => {
-    if (isDrawing && currentStroke.length > 0) {
-      setStrokes((prev) => [
-        ...prev,
-        { points: currentStroke, color: penColor, width: penWidth },
-      ]);
-      setCurrentStroke([]);
-    }
+  const stopDrawing = () => {
     setIsDrawing(false);
   };
 
   // Click to place text box
   const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (tool !== 'text' || !containerRef.current) return;
-    
-    // Ignore clicks inside existing text boxes
     if ((e.target as HTMLElement).closest('.floating-text-box')) return;
 
     const rect = containerRef.current.getBoundingClientRect();
@@ -137,32 +197,67 @@ function TeacherPDFCanvasContent() {
   };
 
   const handleClearDrawings = () => {
-    setStrokes([]);
-    setCurrentStroke([]);
+    const canvas = drawCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx?.clearRect(0, 0, canvas.width, canvas.height);
     setTextBoxes([]);
   };
 
-  // Save Evaluation & Flatten Marked-Up PDF
+  // Flatten Canvas, Red Ink, and Text Boxes into returned PDF
   const handleReturnToStudent = async () => {
     if (!assignmentId) return;
     setSaving(true);
 
     try {
-      const container = containerRef.current;
-      if (!container) return;
+      const pCanvas = pdfCanvasRef.current;
+      const dCanvas = drawCanvasRef.current;
+      if (!pCanvas || !dCanvas) return;
+
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = pCanvas.width;
+      exportCanvas.height = pCanvas.height;
+      const ctx = exportCanvas.getContext('2d')!;
+
+      // 1. Draw PDF base
+      ctx.drawImage(pCanvas, 0, 0);
+
+      // 2. Draw red ink
+      ctx.drawImage(dCanvas, 0, 0);
+
+      // 3. Draw floating text boxes
+      ctx.font = 'bold 20px sans-serif';
+      textBoxes.forEach((box) => {
+        const scaleX = pCanvas.width / pCanvas.clientWidth;
+        const scaleY = pCanvas.height / pCanvas.clientHeight;
+        const boxX = box.x * scaleX;
+        const boxY = box.y * scaleY;
+
+        ctx.fillStyle = '#fee2e2';
+        ctx.fillRect(boxX, boxY, 240, 50);
+        ctx.strokeStyle = '#f87171';
+        ctx.strokeRect(boxX, boxY, 240, 50);
+
+        ctx.fillStyle = '#991b1b';
+        ctx.fillText(box.text, boxX + 10, boxY + 30);
+      });
 
       // @ts-ignore
       const html2pdf = (await import('html2pdf.js')).default;
+      const imgData = exportCanvas.toDataURL('image/jpeg', 0.98);
+
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = `<img src="${imgData}" style="width:100%; height:auto;" />`;
 
       const opt = {
         margin: 0,
         filename: `${title}_MarkedUp.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'px', format: [exportCanvas.width, exportCanvas.height] },
       };
 
-      const pdfBlob = await html2pdf().set(opt).from(container).output('blob');
+      const pdfBlob = await html2pdf().set(opt).from(wrapper).output('blob');
       const filePath = `graded/${assignmentId}_marked_${Date.now()}.pdf`;
 
       const { error: storageError } = await supabase.storage
@@ -196,26 +291,17 @@ function TeacherPDFCanvasContent() {
       }
     } catch (err: any) {
       console.error('Error flattening PDF:', err);
-      alert('Returned assignment to student.');
+      alert('Returned assignment.');
       router.push('/teacher/dashboard');
     }
 
     setSaving(false);
   };
 
-  const pointsToSVGPath = (points: { x: number; y: number }[]) => {
-    if (points.length === 0) return '';
-    return points.reduce(
-      (acc, point, i) =>
-        i === 0 ? `M ${point.x} ${point.y}` : `${acc} L ${point.x} ${point.y}`,
-      ''
-    );
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-300 font-medium">
-        Loading Document Viewer...
+        Loading Document Workspace...
       </div>
     );
   }
@@ -223,7 +309,7 @@ function TeacherPDFCanvasContent() {
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
       
-      {/* Fixed Full-Width Control Bar */}
+      {/* Top Header Control Bar */}
       <header className="sticky top-0 z-50 bg-slate-800 border-b border-slate-700 px-6 py-3 flex flex-wrap justify-between items-center gap-4 shadow-md">
         <div className="flex items-center gap-4">
           <button
@@ -240,7 +326,7 @@ function TeacherPDFCanvasContent() {
           </div>
         </div>
 
-        {/* Toolbar */}
+        {/* Toolbar Controls */}
         <div className="flex items-center gap-2 bg-slate-900 p-1.5 rounded-2xl border border-slate-700 shadow-inner">
           <button
             onClick={() => setTool('pen')}
@@ -274,7 +360,7 @@ function TeacherPDFCanvasContent() {
 
         <button
           onClick={handleReturnToStudent}
-          disabled={saving}
+          disabled={saving || pdfRendering}
           className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-md transition disabled:opacity-50"
         >
           {saving ? 'Processing PDF...' : '✉️ Return Marked-Up PDF'}
@@ -305,57 +391,35 @@ function TeacherPDFCanvasContent() {
         </div>
       </div>
 
-      {/* Full-Screen PDF Workspace Container */}
-      <main className="flex-1 w-full bg-slate-950 p-4 sm:p-8 flex justify-center overflow-auto min-h-[calc(100vh-140px)]">
+      {/* Full-Page Viewer Canvas Sheet */}
+      <main className="flex-1 w-full bg-slate-950 p-6 flex justify-center items-start overflow-auto min-h-[calc(100vh-140px)]">
         <div
           ref={containerRef}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
           onClick={handleContainerClick}
-          className="relative bg-white shadow-2xl rounded-xl border border-slate-700 overflow-hidden w-full max-w-5xl h-[1200px] select-none"
+          className="relative bg-white shadow-2xl rounded-xl border border-slate-700 overflow-hidden max-w-full my-auto select-none"
         >
-          {/* Layer 1: PDF Viewer Embed */}
-          {pdfUrl ? (
-            <iframe
-              src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-              className="w-full h-full border-none pointer-events-none"
-            />
-          ) : (
-            <div className="p-12 text-center text-slate-500 font-medium">
-              No PDF document found.
+          {pdfRendering && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white/90 z-40 text-slate-600 font-bold text-sm">
+              Rendering PDF pages...
             </div>
           )}
 
-          {/* Layer 2: Vector SVG Drawing Overlay */}
-          <svg
-            className={`absolute top-0 left-0 w-full h-full z-20 pointer-events-none`}
-          >
-            {strokes.map((stroke, index) => (
-              <path
-                key={index}
-                d={pointsToSVGPath(stroke.points)}
-                fill="none"
-                stroke={stroke.color}
-                strokeWidth={stroke.width}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ))}
+          {/* Layer 1: PDF Rendered Canvas */}
+          <canvas ref={pdfCanvasRef} className="block w-full h-auto" />
 
-            {currentStroke.length > 0 && (
-              <path
-                d={pointsToSVGPath(currentStroke)}
-                fill="none"
-                stroke={penColor}
-                strokeWidth={penWidth}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            )}
-          </svg>
+          {/* Layer 2: Interactive Drawing Overlay Canvas */}
+          <canvas
+            ref={drawCanvasRef}
+            onMouseDown={startDrawing}
+            onMouseMove={draw}
+            onMouseUp={stopDrawing}
+            onMouseLeave={stopDrawing}
+            className={`absolute top-0 left-0 w-full h-full z-20 ${
+              tool === 'pen' ? 'cursor-crosshair' : 'cursor-default'
+            }`}
+          />
 
-          {/* Layer 3: Interactive Floating Text Boxes */}
+          {/* Layer 3: Floating Text Box Annotations */}
           {textBoxes.map((box) => (
             <div
               key={box.id}
@@ -394,7 +458,7 @@ function TeacherPDFCanvasContent() {
 
 export default function TeacherPDFCanvasPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-slate-300 font-medium bg-slate-900 min-h-screen">Loading Full Page Viewer...</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-slate-300 font-medium bg-slate-900 min-h-screen">Loading Workspace...</div>}>
       <TeacherPDFCanvasContent />
     </Suspense>
   );
