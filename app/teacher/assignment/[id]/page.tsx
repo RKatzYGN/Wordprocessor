@@ -35,7 +35,7 @@ function TeacherPDFCanvasContent() {
   const [textBoxes, setTextBoxes] = useState<TextBoxAnnotation[]>([]);
 
   const [loading, setLoading] = useState(true);
-  const [pdfLoaded, setPdfLoaded] = useState(false);
+  const [pdfRendering, setPdfRendering] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
 
@@ -69,19 +69,34 @@ function TeacherPDFCanvasContent() {
     fetchAssignment();
   }, [assignmentId]);
 
-  // Load PDF.js dynamically via script tag at runtime
+  // Load PDF.js via CDN script and render PDF page onto base canvas
   useEffect(() => {
     if (!pdfUrl) return;
 
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js';
-    script.onload = async () => {
-      try {
-        // @ts-ignore
-        const pdfjsLib = window['pdfjs-dist/build/pdf'];
-        pdfjsLib.GlobalWorkerOptions.workerSrc =
-          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+    let isMounted = true;
+    setPdfRendering(true);
 
+    const loadAndRenderPDF = async () => {
+      // Check if pdfjsLib is already available globally
+      // @ts-ignore
+      if (!window.pdfjsLib) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js';
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('Failed to load PDF.js script'));
+          document.body.appendChild(script);
+        });
+      }
+
+      // @ts-ignore
+      const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
+      if (!pdfjsLib) return;
+
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+      try {
         const loadingTask = pdfjsLib.getDocument(pdfUrl);
         const pdf = await loadingTask.promise;
         const page = await pdf.getPage(1);
@@ -90,7 +105,7 @@ function TeacherPDFCanvasContent() {
         const pCanvas = pdfCanvasRef.current;
         const dCanvas = drawCanvasRef.current;
 
-        if (pCanvas && dCanvas) {
+        if (pCanvas && dCanvas && isMounted) {
           pCanvas.width = viewport.width;
           pCanvas.height = viewport.height;
           dCanvas.width = viewport.width;
@@ -98,17 +113,18 @@ function TeacherPDFCanvasContent() {
 
           const pContext = pCanvas.getContext('2d')!;
           await page.render({ canvasContext: pContext, viewport }).promise;
-          setPdfLoaded(true);
         }
       } catch (err) {
         console.error('PDF Render Error:', err);
       }
+
+      if (isMounted) setPdfRendering(false);
     };
 
-    document.body.appendChild(script);
+    loadAndRenderPDF();
 
     return () => {
-      document.body.removeChild(script);
+      isMounted = false;
     };
   }, [pdfUrl]);
 
@@ -177,7 +193,7 @@ function TeacherPDFCanvasContent() {
     setTextBoxes([]);
   };
 
-  // Merge Canvas, Ink, and Text Boxes into returned PDF
+  // Flatten Canvas, Drawing, and Text Boxes into returned PDF
   const handleReturnToStudent = async () => {
     if (!assignmentId) return;
     setSaving(true);
@@ -277,6 +293,7 @@ function TeacherPDFCanvasContent() {
   return (
     <div className="min-h-screen bg-slate-200/80 pb-20">
       
+      {/* Top Bar Header */}
       <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-6 py-3 flex flex-wrap justify-between items-center gap-4 shadow-2xs">
         <div className="flex items-center gap-4">
           <button
@@ -293,6 +310,7 @@ function TeacherPDFCanvasContent() {
           </div>
         </div>
 
+        {/* Toolbar */}
         <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
           <button
             onClick={() => setTool('pen')}
@@ -322,7 +340,7 @@ function TeacherPDFCanvasContent() {
 
         <button
           onClick={handleReturnToStudent}
-          disabled={saving}
+          disabled={saving || pdfRendering}
           className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-2xs transition disabled:opacity-50"
         >
           {saving ? 'Flattening PDF...' : '✉️ Return Marked-Up PDF'}
@@ -331,6 +349,7 @@ function TeacherPDFCanvasContent() {
 
       <div className="max-w-6xl mx-auto mt-6 px-4 space-y-6">
         
+        {/* Grade Card */}
         <div className="bg-white p-5 rounded-2xl border border-red-200 shadow-2xs space-y-3">
           <h3 className="text-xs font-bold text-red-900 uppercase tracking-wider">
             📝 Grade & Summary Review
@@ -359,25 +378,35 @@ function TeacherPDFCanvasContent() {
           </div>
         </div>
 
+        {/* Paper Container */}
         <div className="flex justify-center">
           <div
             ref={containerRef}
             onClick={handleCanvasClick}
-            className="relative bg-white shadow-xl rounded-xl overflow-hidden border border-slate-300 select-none min-h-[700px]"
+            className="relative bg-white shadow-xl rounded-xl overflow-hidden border border-slate-300 select-none min-h-[700px] min-w-[500px]"
           >
-            <canvas ref={pdfCanvasRef} className="block" />
+            {pdfRendering && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-30 text-slate-500 font-medium text-xs">
+                Rendering student PDF...
+              </div>
+            )}
 
+            {/* Base PDF Canvas */}
+            <canvas ref={pdfCanvasRef} className="block relative z-0" />
+
+            {/* Interactive Drawing Canvas */}
             <canvas
               ref={drawCanvasRef}
               onMouseDown={startDrawing}
               onMouseMove={draw}
               onMouseUp={stopDrawing}
               onMouseLeave={stopDrawing}
-              className={`absolute top-0 left-0 ${
+              className={`absolute top-0 left-0 z-10 ${
                 tool === 'pen' ? 'cursor-crosshair' : 'cursor-default'
               }`}
             />
 
+            {/* Floating Text Boxes Layer */}
             {textBoxes.map((box) => (
               <div
                 key={box.id}
@@ -387,7 +416,10 @@ function TeacherPDFCanvasContent() {
                 <div className="flex justify-between items-center">
                   <span className="text-[9px] font-black uppercase text-red-800">📌 Correction</span>
                   <button
-                    onClick={() => deleteTextBox(box.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteTextBox(box.id);
+                    }}
                     className="text-red-500 hover:text-red-800 text-xs font-bold"
                   >
                     ✕
