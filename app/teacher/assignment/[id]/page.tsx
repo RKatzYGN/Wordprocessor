@@ -49,7 +49,7 @@ function TeacherPDFCanvasContent() {
   const [saving, setSaving] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
 
-  const viewerContainerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!assignmentId) return;
@@ -78,21 +78,21 @@ function TeacherPDFCanvasContent() {
   }, [assignmentId]);
 
   // Handle Freestyle SVG Pen Drawing
-  const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (tool !== 'pen' || !viewerContainerRef.current) return;
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (tool !== 'pen' || !containerRef.current) return;
     setIsDrawing(true);
 
-    const rect = viewerContainerRef.current.getBoundingClientRect();
+    const rect = containerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
     setCurrentStroke([{ x, y }]);
   };
 
-  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!isDrawing || tool !== 'pen' || !viewerContainerRef.current) return;
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDrawing || tool !== 'pen' || !containerRef.current) return;
 
-    const rect = viewerContainerRef.current.getBoundingClientRect();
+    const rect = containerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
@@ -110,11 +110,14 @@ function TeacherPDFCanvasContent() {
     setIsDrawing(false);
   };
 
-  // Click to add text box when Text tool is active
-  const handleSVGClick = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (tool !== 'text' || !viewerContainerRef.current) return;
-    const rect = viewerContainerRef.current.getBoundingClientRect();
+  // Click to place text box
+  const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (tool !== 'text' || !containerRef.current) return;
+    
+    // Ignore clicks inside existing text boxes
+    if ((e.target as HTMLElement).closest('.floating-text-box')) return;
 
+    const rect = containerRef.current.getBoundingClientRect();
     const newBox: TextBoxAnnotation = {
       id: Date.now().toString(),
       x: e.clientX - rect.left,
@@ -139,16 +142,15 @@ function TeacherPDFCanvasContent() {
     setTextBoxes([]);
   };
 
-  // Save Evaluation & Return Marked-Up PDF
+  // Save Evaluation & Flatten Marked-Up PDF
   const handleReturnToStudent = async () => {
     if (!assignmentId) return;
     setSaving(true);
 
     try {
-      const container = viewerContainerRef.current;
+      const container = containerRef.current;
       if (!container) return;
 
-      // Dynamically import html2pdf
       // @ts-ignore
       const html2pdf = (await import('html2pdf.js')).default;
 
@@ -163,7 +165,6 @@ function TeacherPDFCanvasContent() {
       const pdfBlob = await html2pdf().set(opt).from(container).output('blob');
       const filePath = `graded/${assignmentId}_marked_${Date.now()}.pdf`;
 
-      // Upload to Supabase Storage
       const { error: storageError } = await supabase.storage
         .from('assignment_pdfs')
         .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true });
@@ -176,7 +177,6 @@ function TeacherPDFCanvasContent() {
         gradedPdfUrl = urlData.publicUrl;
       }
 
-      // Update Database Record
       const { error: dbError } = await supabase
         .from('assignments')
         .update({
@@ -203,7 +203,6 @@ function TeacherPDFCanvasContent() {
     setSaving(false);
   };
 
-  // Convert points array to SVG path
   const pointsToSVGPath = (points: { x: number; y: number }[]) => {
     if (points.length === 0) return '';
     return points.reduce(
@@ -224,8 +223,8 @@ function TeacherPDFCanvasContent() {
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
       
-      {/* Top Professional Reader Header */}
-      <header className="sticky top-0 z-40 bg-slate-800 border-b border-slate-700 px-6 py-3 flex flex-wrap justify-between items-center gap-4 shadow-md">
+      {/* Fixed Full-Width Control Bar */}
+      <header className="sticky top-0 z-50 bg-slate-800 border-b border-slate-700 px-6 py-3 flex flex-wrap justify-between items-center gap-4 shadow-md">
         <div className="flex items-center gap-4">
           <button
             onClick={() => router.push('/teacher/dashboard')}
@@ -241,7 +240,7 @@ function TeacherPDFCanvasContent() {
           </div>
         </div>
 
-        {/* Floating Markup Tools Bar */}
+        {/* Toolbar */}
         <div className="flex items-center gap-2 bg-slate-900 p-1.5 rounded-2xl border border-slate-700 shadow-inner">
           <button
             onClick={() => setTool('pen')}
@@ -282,133 +281,120 @@ function TeacherPDFCanvasContent() {
         </button>
       </header>
 
-      {/* Main Reader Workspace */}
-      <div className="flex-1 max-w-6xl w-full mx-auto p-6 space-y-6">
-        
-        {/* Evaluation Summary Card */}
-        <div className="bg-slate-800/90 border border-slate-700 rounded-2xl p-5 shadow-sm space-y-3">
-          <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">
-            📝 Grade & Summary Feedback
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">Grade Score</label>
-              <input
-                type="text"
-                placeholder="e.g. A, 92%"
-                value={grade}
-                onChange={(e) => setGrade(e.target.value)}
-                className="w-full border border-slate-600 rounded-xl p-2.5 text-sm font-bold text-white bg-slate-900 focus:outline-none focus:border-red-500"
-              />
-            </div>
-            <div className="sm:col-span-3">
-              <label className="block text-xs font-bold text-slate-300 mb-1">Overall Feedback Notes</label>
-              <input
-                type="text"
-                placeholder="Write summary evaluation..."
-                value={feedback}
-                onChange={(e) => setFeedback(e.target.value)}
-                className="w-full border border-slate-600 rounded-xl p-2.5 text-sm text-white bg-slate-900 focus:outline-none focus:border-red-500"
-              />
-            </div>
+      {/* Grade Entry Bar */}
+      <div className="bg-slate-800/90 border-b border-slate-700 px-6 py-3">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center gap-4">
+          <div className="w-full sm:w-48">
+            <input
+              type="text"
+              placeholder="Score (e.g. A, 92%)"
+              value={grade}
+              onChange={(e) => setGrade(e.target.value)}
+              className="w-full border border-slate-600 rounded-xl px-3 py-2 text-xs font-bold text-white bg-slate-900 focus:outline-none focus:border-red-500"
+            />
+          </div>
+          <div className="w-full flex-1">
+            <input
+              type="text"
+              placeholder="Summary Feedback Notes..."
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              className="w-full border border-slate-600 rounded-xl px-3 py-2 text-xs text-white bg-slate-900 focus:outline-none focus:border-red-500"
+            />
           </div>
         </div>
-
-        {/* Dedicated Document Viewer Window */}
-        <div className="flex justify-center">
-          <div
-            ref={viewerContainerRef}
-            className="relative bg-white shadow-2xl rounded-2xl border border-slate-700 overflow-hidden w-[800px] h-[1000px]"
-          >
-            {/* Embedded Native PDF Reader View */}
-            {pdfUrl ? (
-              <object
-                data={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                type="application/pdf"
-                className="w-full h-full pointer-events-none"
-              >
-                <div className="p-12 text-center text-slate-500">
-                  Document viewer loading...
-                </div>
-              </object>
-            ) : (
-              <div className="p-12 text-center text-slate-500">No PDF submission found.</div>
-            )}
-
-            {/* Interactive Vector Markup Overlay */}
-            <svg
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onClick={handleSVGClick}
-              className={`absolute top-0 left-0 w-full h-full z-20 ${
-                tool === 'pen' ? 'cursor-crosshair' : 'cursor-default'
-              }`}
-            >
-              {/* Existing Drawn Ink Strokes */}
-              {strokes.map((stroke, index) => (
-                <path
-                  key={index}
-                  d={pointsToSVGPath(stroke.points)}
-                  fill="none"
-                  stroke={stroke.color}
-                  strokeWidth={stroke.width}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              ))}
-
-              {/* Active Live Stroke */}
-              {currentStroke.length > 0 && (
-                <path
-                  d={pointsToSVGPath(currentStroke)}
-                  fill="none"
-                  stroke={penColor}
-                  strokeWidth={penWidth}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              )}
-            </svg>
-
-            {/* Floating Text Boxes Overlay */}
-            {textBoxes.map((box) => (
-              <div
-                key={box.id}
-                style={{ left: `${box.x}px`, top: `${box.y}px` }}
-                className="absolute w-52 bg-red-50 border-2 border-red-500 rounded-xl p-2.5 shadow-lg z-30 space-y-1"
-              >
-                <div className="flex justify-between items-center border-b border-red-200 pb-1">
-                  <span className="text-[9px] font-black uppercase text-red-700">📌 Teacher Note</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteTextBox(box.id);
-                    }}
-                    className="text-red-400 hover:text-red-800 text-xs font-bold px-1"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <textarea
-                  rows={2}
-                  value={box.text}
-                  onChange={(e) => updateText(box.id, e.target.value)}
-                  className="w-full bg-transparent border-none p-0 text-xs font-bold text-red-950 focus:outline-none resize-none"
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-
       </div>
+
+      {/* Full-Screen PDF Workspace Container */}
+      <main className="flex-1 w-full bg-slate-950 p-4 sm:p-8 flex justify-center overflow-auto min-h-[calc(100vh-140px)]">
+        <div
+          ref={containerRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onClick={handleContainerClick}
+          className="relative bg-white shadow-2xl rounded-xl border border-slate-700 overflow-hidden w-full max-w-5xl h-[1200px] select-none"
+        >
+          {/* Layer 1: PDF Viewer Embed */}
+          {pdfUrl ? (
+            <iframe
+              src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`}
+              className="w-full h-full border-none pointer-events-none"
+            />
+          ) : (
+            <div className="p-12 text-center text-slate-500 font-medium">
+              No PDF document found.
+            </div>
+          )}
+
+          {/* Layer 2: Vector SVG Drawing Overlay */}
+          <svg
+            className={`absolute top-0 left-0 w-full h-full z-20 pointer-events-none`}
+          >
+            {strokes.map((stroke, index) => (
+              <path
+                key={index}
+                d={pointsToSVGPath(stroke.points)}
+                fill="none"
+                stroke={stroke.color}
+                strokeWidth={stroke.width}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ))}
+
+            {currentStroke.length > 0 && (
+              <path
+                d={pointsToSVGPath(currentStroke)}
+                fill="none"
+                stroke={penColor}
+                strokeWidth={penWidth}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            )}
+          </svg>
+
+          {/* Layer 3: Interactive Floating Text Boxes */}
+          {textBoxes.map((box) => (
+            <div
+              key={box.id}
+              style={{ left: `${box.x}px`, top: `${box.y}px` }}
+              className="floating-text-box absolute w-56 bg-red-50 border-2 border-red-500 rounded-xl p-2.5 shadow-xl z-30 space-y-1 cursor-auto"
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center border-b border-red-200 pb-1">
+                <span className="text-[9px] font-black uppercase text-red-700">📌 Teacher Note</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteTextBox(box.id);
+                  }}
+                  className="text-red-400 hover:text-red-800 text-xs font-bold px-1"
+                >
+                  ✕
+                </button>
+              </div>
+              <textarea
+                rows={2}
+                autoFocus
+                value={box.text}
+                onChange={(e) => updateText(box.id, e.target.value)}
+                className="w-full bg-transparent border-none p-0 text-xs font-bold text-red-950 focus:outline-none resize-none"
+              />
+            </div>
+          ))}
+        </div>
+      </main>
+
     </div>
   );
 }
 
 export default function TeacherPDFCanvasPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-slate-300 font-medium bg-slate-900 min-h-screen">Loading Viewer...</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-slate-300 font-medium bg-slate-900 min-h-screen">Loading Full Page Viewer...</div>}>
       <TeacherPDFCanvasContent />
     </Suspense>
   );
