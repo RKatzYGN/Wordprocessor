@@ -51,15 +51,15 @@ export default function TeacherDashboard() {
       <div
         key={doc.id}
         onClick={() => router.push(`/teacher/assignment/${doc.id}`)}
-        className="bg-white border border-slate-200/90 hover:border-red-300 hover:shadow-md rounded-2xl p-5 cursor-pointer transition-all space-y-1 group"
+        className="group relative bg-white border border-slate-200/90 hover:border-red-300 hover:shadow-md rounded-2xl p-5 cursor-pointer transition-all space-y-1.5"
       >
-        <div className="text-lg font-black text-slate-900 tracking-tight uppercase group-hover:text-red-600 transition-colors leading-tight">
+        <div className="text-base font-black text-slate-900 tracking-tight uppercase group-hover:text-red-600 transition-colors leading-tight">
           {studentDisplayName}
         </div>
         <div className="text-sm font-semibold text-slate-700 leading-tight truncate">
           {doc.title || 'Untitled Assignment'}
         </div>
-        <div className="text-xs text-slate-500 font-medium leading-tight pt-1">
+        <div className="text-xs text-slate-500 font-medium leading-tight">
           Date Submitted:{' '}
           {doc.submitted_at
             ? new Date(doc.submitted_at).toLocaleDateString() +
@@ -72,12 +72,17 @@ export default function TeacherDashboard() {
         </div>
 
         {doc.status === 'graded' && doc.grade && (
-          <div className="pt-2">
+          <div className="pt-1">
             <span className="inline-block px-2.5 py-0.5 bg-red-100 text-red-800 text-[10px] font-bold rounded-md">
               Score: {doc.grade}
             </span>
           </div>
         )}
+
+        {/* Separator Line */}
+        <div className="pt-3">
+          <hr className="border-t border-slate-100 group-hover:border-red-100 transition-colors" />
+        </div>
       </div>
     );
   };
@@ -119,7 +124,7 @@ export default function TeacherDashboard() {
                   No pending ungraded submissions.
                 </div>
               ) : (
-                <div className="space-y-3">{ungradedList.map(renderCard)}</div>
+                <div className="space-y-4">{ungradedList.map(renderCard)}</div>
               )}
             </div>
 
@@ -136,7 +141,7 @@ export default function TeacherDashboard() {
                   No graded assignments yet.
                 </div>
               ) : (
-                <div className="space-y-3">{gradedList.map(renderCard)}</div>
+                <div className="space-y-4">{gradedList.map(renderCard)}</div>
               )}
             </div>
 
