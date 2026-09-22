@@ -2,11 +2,9 @@
 const nextConfig = {
   webpack: (config, { isServer }) => {
     if (!isServer) {
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
+      config.resolve.alias = {
+        ...config.resolve.alias,
         canvas: false,
-        fs: false,
-        path: false,
       };
     }
     return config;
