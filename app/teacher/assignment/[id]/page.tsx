@@ -11,6 +11,12 @@ interface TextBoxAnnotation {
   text: string;
 }
 
+interface Stroke {
+  points: { x: number; y: number }[];
+  color: string;
+  width: number;
+}
+
 function TeacherPDFCanvasContent() {
   const params = useParams();
   const router = useRouter();
@@ -29,19 +35,21 @@ function TeacherPDFCanvasContent() {
   const [grade, setGrade] = useState('');
   const [feedback, setFeedback] = useState('');
 
+  // Tools: 'pen' | 'text'
   const [tool, setTool] = useState<'pen' | 'text'>('pen');
-  const [penColor] = useState('#dc2626');
+  const [penColor] = useState('#dc2626'); // Red
   const [penWidth] = useState(3);
+
+  // Markups state
+  const [strokes, setStrokes] = useState<Stroke[]>([]);
+  const [currentStroke, setCurrentStroke] = useState<{ x: number; y: number }[]>([]);
   const [textBoxes, setTextBoxes] = useState<TextBoxAnnotation[]>([]);
 
   const [loading, setLoading] = useState(true);
-  const [pdfRendering, setPdfRendering] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
-  const drawCanvasRef = useRef<HTMLCanvasElement>(null);
+  const viewerContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!assignmentId) return;
@@ -69,103 +77,43 @@ function TeacherPDFCanvasContent() {
     fetchAssignment();
   }, [assignmentId]);
 
-  // Load PDF.js via CDN script and render PDF page onto base canvas
-  useEffect(() => {
-    if (!pdfUrl) return;
-
-    let isMounted = true;
-    setPdfRendering(true);
-
-    const loadAndRenderPDF = async () => {
-      // Check if pdfjsLib is already available globally
-      // @ts-ignore
-      if (!window.pdfjsLib) {
-        await new Promise<void>((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js';
-          script.onload = () => resolve();
-          script.onerror = () => reject(new Error('Failed to load PDF.js script'));
-          document.body.appendChild(script);
-        });
-      }
-
-      // @ts-ignore
-      const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
-      if (!pdfjsLib) return;
-
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-
-      try {
-        const loadingTask = pdfjsLib.getDocument(pdfUrl);
-        const pdf = await loadingTask.promise;
-        const page = await pdf.getPage(1);
-
-        const viewport = page.getViewport({ scale: 1.5 });
-        const pCanvas = pdfCanvasRef.current;
-        const dCanvas = drawCanvasRef.current;
-
-        if (pCanvas && dCanvas && isMounted) {
-          pCanvas.width = viewport.width;
-          pCanvas.height = viewport.height;
-          dCanvas.width = viewport.width;
-          dCanvas.height = viewport.height;
-
-          const pContext = pCanvas.getContext('2d')!;
-          await page.render({ canvasContext: pContext, viewport }).promise;
-        }
-      } catch (err) {
-        console.error('PDF Render Error:', err);
-      }
-
-      if (isMounted) setPdfRendering(false);
-    };
-
-    loadAndRenderPDF();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [pdfUrl]);
-
-  // Freestyle Pen Drawing
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (tool !== 'pen') return;
+  // Handle Freestyle SVG Pen Drawing
+  const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (tool !== 'pen' || !viewerContainerRef.current) return;
     setIsDrawing(true);
-    const canvas = drawCanvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
 
-    ctx.beginPath();
-    ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+    const rect = viewerContainerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    setCurrentStroke([{ x, y }]);
   };
 
-  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing || tool !== 'pen') return;
-    const canvas = drawCanvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!isDrawing || tool !== 'pen' || !viewerContainerRef.current) return;
 
-    ctx.strokeStyle = penColor;
-    ctx.lineWidth = penWidth;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    const rect = viewerContainerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
 
-    ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
-    ctx.stroke();
+    setCurrentStroke((prev) => [...prev, { x, y }]);
   };
 
-  const stopDrawing = () => {
+  const handleMouseUp = () => {
+    if (isDrawing && currentStroke.length > 0) {
+      setStrokes((prev) => [
+        ...prev,
+        { points: currentStroke, color: penColor, width: penWidth },
+      ]);
+      setCurrentStroke([]);
+    }
     setIsDrawing(false);
   };
 
-  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (tool !== 'text' || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
+  // Click to add text box when Text tool is active
+  const handleSVGClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (tool !== 'text' || !viewerContainerRef.current) return;
+    const rect = viewerContainerRef.current.getBoundingClientRect();
 
     const newBox: TextBoxAnnotation = {
       id: Date.now().toString(),
@@ -174,76 +122,48 @@ function TeacherPDFCanvasContent() {
       text: 'Type correction...',
     };
 
-    setTextBoxes([...textBoxes, newBox]);
+    setTextBoxes((prev) => [...prev, newBox]);
   };
 
   const updateText = (id: string, text: string) => {
-    setTextBoxes(textBoxes.map((b) => (b.id === id ? { ...b, text } : b)));
+    setTextBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, text } : b)));
   };
 
   const deleteTextBox = (id: string) => {
-    setTextBoxes(textBoxes.filter((b) => b.id !== id));
+    setTextBoxes((prev) => prev.filter((b) => b.id !== id));
   };
 
   const handleClearDrawings = () => {
-    const canvas = drawCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    ctx?.clearRect(0, 0, canvas.width, canvas.height);
+    setStrokes([]);
+    setCurrentStroke([]);
     setTextBoxes([]);
   };
 
-  // Flatten Canvas, Drawing, and Text Boxes into returned PDF
+  // Save Evaluation & Return Marked-Up PDF
   const handleReturnToStudent = async () => {
     if (!assignmentId) return;
     setSaving(true);
 
     try {
-      const pCanvas = pdfCanvasRef.current;
-      const dCanvas = drawCanvasRef.current;
-      if (!pCanvas || !dCanvas) return;
+      const container = viewerContainerRef.current;
+      if (!container) return;
 
-      const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = pCanvas.width;
-      exportCanvas.height = pCanvas.height;
-      const ctx = exportCanvas.getContext('2d')!;
-
-      // Draw PDF base
-      ctx.drawImage(pCanvas, 0, 0);
-
-      // Draw red ink
-      ctx.drawImage(dCanvas, 0, 0);
-
-      // Draw floating text boxes
-      ctx.font = 'bold 13px sans-serif';
-      textBoxes.forEach((box) => {
-        ctx.fillStyle = '#fee2e2';
-        ctx.fillRect(box.x, box.y, 180, 38);
-        ctx.strokeStyle = '#f87171';
-        ctx.strokeRect(box.x, box.y, 180, 38);
-
-        ctx.fillStyle = '#991b1b';
-        ctx.fillText(box.text, box.x + 8, box.y + 22);
-      });
-
+      // Dynamically import html2pdf
       // @ts-ignore
       const html2pdf = (await import('html2pdf.js')).default;
-      const imgData = exportCanvas.toDataURL('image/jpeg', 0.98);
-
-      const wrapper = document.createElement('div');
-      wrapper.innerHTML = `<img src="${imgData}" style="width:100%; height:auto;" />`;
 
       const opt = {
         margin: 0,
         filename: `${title}_MarkedUp.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2 },
-        jsPDF: { unit: 'px', format: [exportCanvas.width, exportCanvas.height] },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
       };
 
-      const pdfBlob = await html2pdf().set(opt).from(wrapper).output('blob');
+      const pdfBlob = await html2pdf().set(opt).from(container).output('blob');
       const filePath = `graded/${assignmentId}_marked_${Date.now()}.pdf`;
 
+      // Upload to Supabase Storage
       const { error: storageError } = await supabase.storage
         .from('assignment_pdfs')
         .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true });
@@ -256,6 +176,7 @@ function TeacherPDFCanvasContent() {
         gradedPdfUrl = urlData.publicUrl;
       }
 
+      // Update Database Record
       const { error: dbError } = await supabase
         .from('assignments')
         .update({
@@ -275,47 +196,59 @@ function TeacherPDFCanvasContent() {
       }
     } catch (err: any) {
       console.error('Error flattening PDF:', err);
-      alert('Returned assignment.');
+      alert('Returned assignment to student.');
       router.push('/teacher/dashboard');
     }
 
     setSaving(false);
   };
 
+  // Convert points array to SVG path
+  const pointsToSVGPath = (points: { x: number; y: number }[]) => {
+    if (points.length === 0) return '';
+    return points.reduce(
+      (acc, point, i) =>
+        i === 0 ? `M ${point.x} ${point.y}` : `${acc} L ${point.x} ${point.y}`,
+      ''
+    );
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center text-slate-500 font-medium">
-        Loading workspace...
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-300 font-medium">
+        Loading Document Viewer...
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-200/80 pb-20">
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
       
-      {/* Top Bar Header */}
-      <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-6 py-3 flex flex-wrap justify-between items-center gap-4 shadow-2xs">
+      {/* Top Professional Reader Header */}
+      <header className="sticky top-0 z-40 bg-slate-800 border-b border-slate-700 px-6 py-3 flex flex-wrap justify-between items-center gap-4 shadow-md">
         <div className="flex items-center gap-4">
           <button
             onClick={() => router.push('/teacher/dashboard')}
-            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+            className="px-3.5 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-bold rounded-xl transition"
           >
-            ← Back to Dashboard
+            ← Back to Queue
           </button>
           <div>
-            <h1 className="text-base font-bold text-slate-900">{title}</h1>
-            <p className="text-[11px] text-slate-500">
-              Student: <span className="font-bold text-slate-800">{studentName}</span> ({studentEmail})
+            <h1 className="text-sm font-bold text-white max-w-xs sm:max-w-md truncate">{title}</h1>
+            <p className="text-[11px] text-slate-400">
+              Student: <span className="font-bold text-slate-200">{studentName}</span> ({studentEmail})
             </p>
           </div>
         </div>
 
-        {/* Toolbar */}
-        <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+        {/* Floating Markup Tools Bar */}
+        <div className="flex items-center gap-2 bg-slate-900 p-1.5 rounded-2xl border border-slate-700 shadow-inner">
           <button
             onClick={() => setTool('pen')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-xl transition ${
-              tool === 'pen' ? 'bg-red-600 text-white shadow-2xs' : 'text-slate-700 hover:bg-slate-200'
+            className={`px-4 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
+              tool === 'pen'
+                ? 'bg-red-600 text-white shadow-sm'
+                : 'text-slate-300 hover:bg-slate-800'
             }`}
           >
             ✍️ Red Pen
@@ -323,8 +256,10 @@ function TeacherPDFCanvasContent() {
 
           <button
             onClick={() => setTool('text')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-xl transition ${
-              tool === 'text' ? 'bg-red-600 text-white shadow-2xs' : 'text-slate-700 hover:bg-slate-200'
+            className={`px-4 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
+              tool === 'text'
+                ? 'bg-red-600 text-white shadow-sm'
+                : 'text-slate-300 hover:bg-slate-800'
             }`}
           >
             📌 Add Text Box
@@ -332,7 +267,7 @@ function TeacherPDFCanvasContent() {
 
           <button
             onClick={handleClearDrawings}
-            className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:text-red-600 rounded-xl transition"
+            className="px-3.5 py-2 text-xs font-bold text-slate-400 hover:text-red-400 rounded-xl transition"
           >
             🧹 Clear
           </button>
@@ -340,87 +275,117 @@ function TeacherPDFCanvasContent() {
 
         <button
           onClick={handleReturnToStudent}
-          disabled={saving || pdfRendering}
-          className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-2xs transition disabled:opacity-50"
+          disabled={saving}
+          className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-md transition disabled:opacity-50"
         >
-          {saving ? 'Flattening PDF...' : '✉️ Return Marked-Up PDF'}
+          {saving ? 'Processing PDF...' : '✉️ Return Marked-Up PDF'}
         </button>
       </header>
 
-      <div className="max-w-6xl mx-auto mt-6 px-4 space-y-6">
+      {/* Main Reader Workspace */}
+      <div className="flex-1 max-w-6xl w-full mx-auto p-6 space-y-6">
         
-        {/* Grade Card */}
-        <div className="bg-white p-5 rounded-2xl border border-red-200 shadow-2xs space-y-3">
-          <h3 className="text-xs font-bold text-red-900 uppercase tracking-wider">
-            📝 Grade & Summary Review
+        {/* Evaluation Summary Card */}
+        <div className="bg-slate-800/90 border border-slate-700 rounded-2xl p-5 shadow-sm space-y-3">
+          <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">
+            📝 Grade & Summary Feedback
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div>
-              <label className="block text-xs font-bold text-red-900 mb-1">Score</label>
+              <label className="block text-xs font-bold text-slate-300 mb-1">Grade Score</label>
               <input
                 type="text"
-                placeholder="e.g. A, 95%"
+                placeholder="e.g. A, 92%"
                 value={grade}
                 onChange={(e) => setGrade(e.target.value)}
-                className="w-full border border-red-300 rounded-xl p-2 text-sm font-bold text-red-950 bg-red-50/20"
+                className="w-full border border-slate-600 rounded-xl p-2.5 text-sm font-bold text-white bg-slate-900 focus:outline-none focus:border-red-500"
               />
             </div>
             <div className="sm:col-span-3">
-              <label className="block text-xs font-bold text-red-900 mb-1">Overall Feedback</label>
+              <label className="block text-xs font-bold text-slate-300 mb-1">Overall Feedback Notes</label>
               <input
                 type="text"
                 placeholder="Write summary evaluation..."
                 value={feedback}
                 onChange={(e) => setFeedback(e.target.value)}
-                className="w-full border border-red-300 rounded-xl p-2 text-sm text-red-950 bg-red-50/20"
+                className="w-full border border-slate-600 rounded-xl p-2.5 text-sm text-white bg-slate-900 focus:outline-none focus:border-red-500"
               />
             </div>
           </div>
         </div>
 
-        {/* Paper Container */}
+        {/* Dedicated Document Viewer Window */}
         <div className="flex justify-center">
           <div
-            ref={containerRef}
-            onClick={handleCanvasClick}
-            className="relative bg-white shadow-xl rounded-xl overflow-hidden border border-slate-300 select-none min-h-[700px] min-w-[500px]"
+            ref={viewerContainerRef}
+            className="relative bg-white shadow-2xl rounded-2xl border border-slate-700 overflow-hidden w-[800px] h-[1000px]"
           >
-            {pdfRendering && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-30 text-slate-500 font-medium text-xs">
-                Rendering student PDF...
-              </div>
+            {/* Embedded Native PDF Reader View */}
+            {pdfUrl ? (
+              <object
+                data={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`}
+                type="application/pdf"
+                className="w-full h-full pointer-events-none"
+              >
+                <div className="p-12 text-center text-slate-500">
+                  Document viewer loading...
+                </div>
+              </object>
+            ) : (
+              <div className="p-12 text-center text-slate-500">No PDF submission found.</div>
             )}
 
-            {/* Base PDF Canvas */}
-            <canvas ref={pdfCanvasRef} className="block relative z-0" />
-
-            {/* Interactive Drawing Canvas */}
-            <canvas
-              ref={drawCanvasRef}
-              onMouseDown={startDrawing}
-              onMouseMove={draw}
-              onMouseUp={stopDrawing}
-              onMouseLeave={stopDrawing}
-              className={`absolute top-0 left-0 z-10 ${
+            {/* Interactive Vector Markup Overlay */}
+            <svg
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onClick={handleSVGClick}
+              className={`absolute top-0 left-0 w-full h-full z-20 ${
                 tool === 'pen' ? 'cursor-crosshair' : 'cursor-default'
               }`}
-            />
+            >
+              {/* Existing Drawn Ink Strokes */}
+              {strokes.map((stroke, index) => (
+                <path
+                  key={index}
+                  d={pointsToSVGPath(stroke.points)}
+                  fill="none"
+                  stroke={stroke.color}
+                  strokeWidth={stroke.width}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              ))}
 
-            {/* Floating Text Boxes Layer */}
+              {/* Active Live Stroke */}
+              {currentStroke.length > 0 && (
+                <path
+                  d={pointsToSVGPath(currentStroke)}
+                  fill="none"
+                  stroke={penColor}
+                  strokeWidth={penWidth}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+            </svg>
+
+            {/* Floating Text Boxes Overlay */}
             {textBoxes.map((box) => (
               <div
                 key={box.id}
                 style={{ left: `${box.x}px`, top: `${box.y}px` }}
-                className="absolute w-48 bg-red-100 border border-red-400 rounded-lg p-2 shadow-md z-20 space-y-1"
+                className="absolute w-52 bg-red-50 border-2 border-red-500 rounded-xl p-2.5 shadow-lg z-30 space-y-1"
               >
-                <div className="flex justify-between items-center">
-                  <span className="text-[9px] font-black uppercase text-red-800">📌 Correction</span>
+                <div className="flex justify-between items-center border-b border-red-200 pb-1">
+                  <span className="text-[9px] font-black uppercase text-red-700">📌 Teacher Note</span>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       deleteTextBox(box.id);
                     }}
-                    className="text-red-500 hover:text-red-800 text-xs font-bold"
+                    className="text-red-400 hover:text-red-800 text-xs font-bold px-1"
                   >
                     ✕
                   </button>
@@ -443,7 +408,7 @@ function TeacherPDFCanvasContent() {
 
 export default function TeacherPDFCanvasPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-slate-500 font-medium">Loading workspace...</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-slate-300 font-medium bg-slate-900 min-h-screen">Loading Viewer...</div>}>
       <TeacherPDFCanvasContent />
     </Suspense>
   );
