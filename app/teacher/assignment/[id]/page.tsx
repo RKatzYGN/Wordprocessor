@@ -76,8 +76,8 @@ function TeacherPDFCanvasContent() {
     async function renderPDFPage() {
       setPdfRendering(true);
       try {
-        // Dynamic client-side import of PDF.js
-        const pdfjsLib = await import('pdfjs-dist/build/pdf.js');
+        // Dynamic import strictly at runtime inside browser
+        const pdfjsLib = await import('pdfjs-dist');
         pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
         const loadingTask = pdfjsLib.getDocument(pdfUrl);
@@ -96,7 +96,7 @@ function TeacherPDFCanvasContent() {
         const pContext = pCanvas.getContext('2d')!;
         await page.render({ canvasContext: pContext, viewport }).promise;
       } catch (err) {
-        console.error('Error rendering PDF with PDF.js:', err);
+        console.error('Error rendering PDF canvas:', err);
       }
       setPdfRendering(false);
     }
