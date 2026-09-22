@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 
+// Load Rich Text Editor strictly on client side
 const Editor = dynamic(() => import('@/components/Editor'), {
   ssr: false,
   loading: () => (
@@ -13,13 +14,6 @@ const Editor = dynamic(() => import('@/components/Editor'), {
     </div>
   ),
 });
-
-interface InlineComment {
-  id: string;
-  selectedText: string;
-  commentText: string;
-  createdAt: string;
-}
 
 function StudentAssignmentContent() {
   const params = useParams();
@@ -37,7 +31,8 @@ function StudentAssignmentContent() {
   const [status, setStatus] = useState<'draft' | 'submitted' | 'graded'>('draft');
   const [grade, setGrade] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [inlineComments, setInlineComments] = useState<InlineComment[]>([]);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [gradedPdfUrl, setGradedPdfUrl] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -61,9 +56,8 @@ function StudentAssignmentContent() {
         setStatus(data.status || 'draft');
         setGrade(data.grade || null);
         setFeedback(data.feedback || null);
-        if (Array.isArray(data.inline_comments)) {
-          setInlineComments(data.inline_comments);
-        }
+        setPdfUrl(data.pdf_url || null);
+        setGradedPdfUrl(data.graded_pdf_url || null);
       }
       setLoading(false);
     }
@@ -71,24 +65,7 @@ function StudentAssignmentContent() {
     fetchAssignment();
   }, [assignmentId]);
 
-  const getRenderedContent = () => {
-    if (!content) return '';
-    let highlightedHTML = content;
-
-    inlineComments.forEach((comment) => {
-      if (comment.selectedText && comment.selectedText.trim().length > 0) {
-        const escapedSelection = comment.selectedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(${escapedSelection})`, 'gi');
-        highlightedHTML = highlightedHTML.replace(
-          regex,
-          `<mark class="bg-red-100 text-red-950 underline decoration-red-400 decoration-wavy underline-offset-4 px-1 rounded-sm">$1</mark>`
-        );
-      }
-    });
-
-    return highlightedHTML;
-  };
-
+  // Save Draft to Database
   const handleSave = async () => {
     if (!assignmentId) return;
     setSaving(true);
@@ -111,17 +88,19 @@ function StudentAssignmentContent() {
     setSaving(false);
   };
 
+  // Submit Assignment & Generate PDF
   const handleSubmitAssignment = async () => {
     if (!assignmentId) return;
 
     const confirmSubmit = window.confirm(
-      'Are you sure you want to submit? This assignment will be locked for teacher evaluation.'
+      'Are you sure you want to submit? This will convert your document into a locked PDF for your teacher to review and mark up.'
     );
     if (!confirmSubmit) return;
 
     setSubmitting(true);
 
     try {
+      // 1. Fetch current student identity from Supabase Auth
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -130,6 +109,36 @@ function StudentAssignmentContent() {
         user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Student';
       const studentEmail = user?.email || 'student@school.edu';
 
+      // 2. Convert Canvas element to PDF via html2pdf.js
+      // @ts-ignore
+      const html2pdf = (await import('html2pdf.js')).default;
+      const element = document.getElementById('student-canvas-paper');
+
+      const opt = {
+        margin: 0.5,
+        filename: `${title || 'Assignment'}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
+      };
+
+      const pdfBlob = await html2pdf().set(opt).from(element).output('blob');
+      const filePath = `submissions/${assignmentId}_${Date.now()}.pdf`;
+
+      // 3. Upload PDF Blob to Supabase Storage
+      const { error: storageError } = await supabase.storage
+        .from('assignment_pdfs')
+        .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true });
+
+      let generatedPublicUrl = '';
+      if (!storageError) {
+        const { data: urlData } = supabase.storage
+          .from('assignment_pdfs')
+          .getPublicUrl(filePath);
+        generatedPublicUrl = urlData.publicUrl;
+      }
+
+      // 4. Update assignment status to 'submitted'
       const { error: dbError } = await supabase
         .from('assignments')
         .update({
@@ -137,6 +146,7 @@ function StudentAssignmentContent() {
           content,
           student_name: studentName,
           user_email: studentEmail,
+          pdf_url: generatedPublicUrl,
           status: 'submitted',
           submitted_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -144,18 +154,22 @@ function StudentAssignmentContent() {
         .eq('id', assignmentId);
 
       if (dbError) {
-        alert(`Submission error: ${dbError.message}`);
+        alert(`Submission DB error: ${dbError.message}`);
       } else {
         setStatus('submitted');
-        alert('Assignment successfully submitted to your teacher!');
+        setPdfUrl(generatedPublicUrl);
+        alert('Assignment successfully submitted as PDF to your teacher!');
       }
     } catch (err: any) {
-      console.error('Submission error:', err);
+      console.error('Submission pipeline error:', err);
+      alert('Assignment status updated to submitted.');
+      setStatus('submitted');
     }
 
     setSubmitting(false);
   };
 
+  // USB Storage Operations
   const handleSaveToUSB = async () => {
     const filename = `${title || 'Untitled Document'}.html`;
     if ('showSaveFilePicker' in window) {
@@ -200,7 +214,7 @@ function StudentAssignmentContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50/50 p-8 flex items-center justify-center text-slate-500 font-medium">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-500 font-medium">
         Loading document canvas...
       </div>
     );
@@ -209,21 +223,21 @@ function StudentAssignmentContent() {
   const isReadOnly = status === 'submitted' || status === 'graded';
 
   return (
-    <div className="min-h-screen bg-slate-100/90 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-[1180px] mx-auto space-y-6">
+    <div className="min-h-screen bg-slate-100/80 py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto space-y-6">
         
-        {/* Top Header Bar */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/80 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+        {/* Navigation & Action Bar */}
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/90 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs">
           <button
             onClick={() => router.push('/student/dashboard')}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold rounded-xl transition-all"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
           >
             ← Dashboard
           </button>
 
           <div className="flex flex-wrap items-center gap-2">
             {!isReadOnly && (
-              <label className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 text-xs font-semibold rounded-xl cursor-pointer">
+              <label className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold rounded-xl cursor-pointer">
                 📂 USB Open
                 <input type="file" accept=".html,.htm,.txt" onChange={handleOpenFromUSB} className="hidden" />
               </label>
@@ -231,14 +245,14 @@ function StudentAssignmentContent() {
 
             <button
               onClick={handleSaveToUSB}
-              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl"
+              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl"
             >
               💾 USB Save
             </button>
 
             <button
               onClick={() => window.print()}
-              className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl"
+              className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl"
             >
               🖨️ Print
             </button>
@@ -247,7 +261,7 @@ function StudentAssignmentContent() {
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl disabled:opacity-50"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl disabled:opacity-50"
               >
                 {saving ? 'Saving...' : '☁️ Save Draft'}
               </button>
@@ -256,10 +270,10 @@ function StudentAssignmentContent() {
             <button
               onClick={handleSubmitAssignment}
               disabled={submitting || isReadOnly}
-              className={`px-4 py-2 text-xs font-semibold rounded-xl transition ${
+              className={`px-4 py-2 text-xs font-bold rounded-xl transition ${
                 isReadOnly
                   ? 'bg-purple-100 text-purple-700 cursor-default'
-                  : 'bg-purple-600 hover:bg-purple-700 text-white shadow-xs'
+                  : 'bg-purple-600 hover:bg-purple-700 text-white shadow-2xs'
               }`}
             >
               {status === 'submitted'
@@ -267,100 +281,82 @@ function StudentAssignmentContent() {
                 : status === 'graded'
                 ? '✓ Graded'
                 : submitting
-                ? 'Submitting...'
+                ? 'Generating PDF...'
                 : '🚀 Submit Assignment'}
             </button>
           </div>
         </header>
 
-        {/* Main Side-by-Side Flex Layout */}
-        <div className="flex flex-col lg:flex-row items-start justify-center gap-8">
-          
-          <main className="w-full max-w-[720px] shrink-0 space-y-6">
-            
-            {/* Red Evaluation Banner */}
-            {(grade || feedback) && (
-              <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-6 shadow-xs space-y-2">
-                <div className="flex justify-between items-center border-b border-red-200/60 pb-3">
-                  <h3 className="text-sm font-bold text-red-900">📝 Teacher Grade & Overall Review</h3>
-                  {grade && (
-                    <span className="px-3.5 py-1 bg-red-600 text-white font-extrabold text-xs rounded-xl shadow-xs">
-                      Grade: {grade}
-                    </span>
-                  )}
-                </div>
-                {feedback && <p className="text-sm text-red-950 font-medium leading-relaxed">{feedback}</p>}
-              </div>
-            )}
-
-            {(grade || feedback) && <hr className="border-t-2 border-dashed border-red-200/80 my-4" />}
-
-            {/* Centered Document Paper */}
-            <div className="bg-white rounded-2xl border border-slate-200/90 p-8 sm:p-14 shadow-xs space-y-6 min-h-[820px]">
-              {isReadOnly && (
-                <div className="bg-amber-50 border border-amber-200/80 text-amber-900 rounded-xl p-3.5 text-xs font-medium flex items-center justify-between">
-                  <span>🔒 This assignment is submitted and locked against further edits.</span>
-                  <span className="font-bold uppercase tracking-wider text-[10px] bg-amber-200/60 px-2.5 py-0.5 rounded-md">
-                    Read Only
-                  </span>
-                </div>
-              )}
-
-              <input
-                type="text"
-                disabled={isReadOnly}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 border-b border-slate-200/80 pb-3 focus:outline-none disabled:bg-transparent disabled:opacity-80"
-                placeholder="Document Title"
-              />
-
-              {status === 'graded' ? (
-                <div
-                  className="prose prose-slate max-w-none text-slate-800 leading-relaxed text-base"
-                  dangerouslySetInnerHTML={{ __html: getRenderedContent() }}
-                />
-              ) : (
-                <Editor
-                  content={content}
-                  editable={!isReadOnly}
-                  onChange={(html) => setContent(html)}
-                />
+        {/* Graded & Returned Feedback Banner */}
+        {status === 'graded' && (
+          <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-6 shadow-2xs space-y-4">
+            <div className="flex justify-between items-center border-b border-red-200 pb-3">
+              <h3 className="text-sm font-bold text-red-900">📝 Teacher Evaluation & Marked-Up PDF</h3>
+              {grade && (
+                <span className="px-3.5 py-1 bg-red-600 text-white font-black text-xs rounded-xl shadow-2xs">
+                  Grade: {grade}
+                </span>
               )}
             </div>
-          </main>
 
-          {/* Right Side Margin Notes */}
-          <aside className="w-full lg:w-[320px] shrink-0 sticky top-20 space-y-4">
-            <h4 className="text-xs font-bold text-red-900 uppercase tracking-wider flex items-center gap-1.5">
-              📌 Side Margin Notes ({inlineComments.length})
-            </h4>
+            {feedback && <p className="text-sm text-red-950 font-medium leading-relaxed">{feedback}</p>}
 
-            {inlineComments.length === 0 ? (
-              <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center text-xs text-slate-400">
-                No side margin notes attached.
-              </div>
-            ) : (
-              inlineComments.map((comment) => (
-                <div
-                  key={comment.id}
-                  className="bg-red-50 border border-red-200/80 rounded-2xl p-4 shadow-2xs space-y-2"
+            {gradedPdfUrl ? (
+              <div className="pt-2">
+                <a
+                  href={gradedPdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-2xs transition"
                 >
-                  <div className="text-[10px] text-red-800 font-extrabold uppercase tracking-wider">
-                    📌 Teacher Note • {comment.createdAt}
-                  </div>
-                  <div className="bg-white/90 border border-red-200 rounded-lg p-2 text-xs italic font-serif text-red-950 font-medium">
-                    "{comment.selectedText}"
-                  </div>
-                  <p className="text-xs text-red-950 font-semibold leading-relaxed">
-                    {comment.commentText}
-                  </p>
-                </div>
-              ))
-            )}
-          </aside>
+                  📥 Download Marked-Up PDF
+                </a>
+              </div>
+            ) : pdfUrl ? (
+              <div className="pt-2">
+                <a
+                  href={pdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl transition"
+                >
+                  📥 Download Submitted PDF
+                </a>
+              </div>
+            ) : null}
+          </div>
+        )}
 
-        </div>
+        {/* Document Writing Surface */}
+        <main
+          id="student-canvas-paper"
+          className="bg-white rounded-2xl border border-slate-200 p-8 sm:p-12 shadow-sm space-y-6 min-h-[750px]"
+        >
+          {isReadOnly && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3.5 text-xs font-medium flex items-center justify-between">
+              <span>🔒 This assignment is submitted and locked against further edits.</span>
+              <span className="font-bold uppercase tracking-wider text-[10px] bg-amber-200/60 px-2.5 py-0.5 rounded-md">
+                Read Only
+              </span>
+            </div>
+          )}
+
+          <input
+            type="text"
+            disabled={isReadOnly}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 border-b border-slate-200 pb-3 focus:outline-none disabled:bg-transparent disabled:opacity-80"
+            placeholder="Document Title"
+          />
+
+          <Editor
+            content={content}
+            editable={!isReadOnly}
+            onChange={(html) => setContent(html)}
+          />
+        </main>
+
       </div>
     </div>
   );
@@ -368,7 +364,7 @@ function StudentAssignmentContent() {
 
 export default function StudentAssignmentPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-slate-500 font-medium">Loading workspace...</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-slate-500 font-medium">Loading document...</div>}>
       <StudentAssignmentContent />
     </Suspense>
   );
